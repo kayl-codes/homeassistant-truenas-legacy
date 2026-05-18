@@ -22,7 +22,7 @@ def update_manifest_version(version):
         print(f"Found manifest.json at: {manifest_path}")
 
         # Read the current manifest file
-        with open(manifest_path, "r") as file:
+        with open(manifest_path) as file:
             manifest_data = json.load(file)
 
         # Update the version

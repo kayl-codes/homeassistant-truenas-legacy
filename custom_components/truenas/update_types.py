@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
 from homeassistant.components.update import UpdateEntityDescription
 
@@ -21,7 +20,7 @@ class TrueNASUpdateEntityDescription(UpdateEntityDescription):
     data_name: str | None = None
     data_uid: str | None = None
     data_reference: str | None = None
-    data_attributes_list: List = field(default_factory=lambda: [])
+    data_attributes_list: list = field(default_factory=lambda: [])
     func: str | None = None
 
 

@@ -1,8 +1,8 @@
 """TrueNAS API."""
 
 import json
-from logging import getLogger
 import ssl
+from logging import getLogger
 from threading import Lock
 from typing import Any
 
@@ -14,7 +14,7 @@ _LOGGER = getLogger(__name__)
 # ---------------------------
 #   TrueNASAPI
 # ---------------------------
-class TrueNASAPI(object):
+class TrueNASAPI:
     """Handle all communication with TrueNAS."""
 
     _ws: ClientConnection
@@ -174,7 +174,11 @@ class TrueNASAPI(object):
     # ---------------------------
     #   query
     # ---------------------------
-    def query(self, service: str, params: dict[str, Any] | None = {}) -> list | dict | None:
+    def query(
+        self,
+        service: str,
+        params: dict[str, Any] | None = {},
+    ) -> list | dict | None:
         """Retrieve data from TrueNAS."""
         if not self.connected():
             self.connect()
@@ -201,7 +205,7 @@ class TrueNASAPI(object):
 
                 self._ws.send(json.dumps(payload))
                 message = self._ws.recv()
-                
+
                 if message.startswith("{"):
                     res = json.loads(message)
                     # Check for direct RPC error
@@ -215,8 +219,8 @@ class TrueNASAPI(object):
 
                     # Extract result, but keep the structure if it's already the data
                     data = res.get("result", res)
-                    
-                    # If the API returns 'null' (None), we return None to the coordinator
+
+                    # If the API returns 'null' (None), return None to the coordinator
                     if data is None:
                         return None
                 else:
