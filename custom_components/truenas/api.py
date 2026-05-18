@@ -225,7 +225,7 @@ class TrueNASAPI:
                         return None
                 else:
                     data = message
-                    
+
                     _LOGGER.debug(
                         "TrueNAS %s query (%s) response: %s", self._host, service, data
                     )

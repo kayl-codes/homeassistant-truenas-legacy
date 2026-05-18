@@ -11,20 +11,20 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
-    UnitOfTemperature,
     UnitOfDataRate,
     UnitOfInformation,
+    UnitOfTemperature,
 )
 from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
-    SCHEMA_SERVICE_CLOUDSYNC_RUN,
     SCHEMA_SERVICE_CLOUDSYNC_ABORT,
+    SCHEMA_SERVICE_CLOUDSYNC_RUN,
     SCHEMA_SERVICE_DATASET_SNAPSHOT,
     SCHEMA_SERVICE_SYSTEM_REBOOT,
     SCHEMA_SERVICE_SYSTEM_SHUTDOWN,
-    SERVICE_CLOUDSYNC_RUN,
     SERVICE_CLOUDSYNC_ABORT,
+    SERVICE_CLOUDSYNC_RUN,
     SERVICE_DATASET_SNAPSHOT,
     SERVICE_SYSTEM_REBOOT,
     SERVICE_SYSTEM_SHUTDOWN,
