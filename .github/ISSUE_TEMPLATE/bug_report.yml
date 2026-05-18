@@ -1,0 +1,48 @@
+name: Bug Report
+description: Create a report to help us improve the integration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! 
+        Please make sure you are running the latest version of the integration and Home Assistant before reporting.
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant Version
+      description: What version of Home Assistant Core are you running?
+      placeholder: e.g. 2026.5.0
+    validations:
+      required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: TrueNAS Integration Version
+      description: What version of this integration are you running?
+      placeholder: e.g. 1.4.0
+    validations:
+      required: true
+  - type: input
+    id: truenas_version
+    attributes:
+      label: TrueNAS Version
+      description: What version of TrueNAS (Core/Scale) are you using?
+      placeholder: e.g. TrueNAS SCALE 25.10
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please provide any relevant log snippets from Home Assistant.
+      render: shell
+    validations:
+      required: false
