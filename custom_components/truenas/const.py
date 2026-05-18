@@ -1,15 +1,10 @@
 """Constants used by the TrueNAS integration."""
 
 import voluptuous as vol
-
 from homeassistant.const import Platform
 from homeassistant.helpers import config_validation as cv
 
-PLATFORMS = [
-    Platform.SENSOR,
-    Platform.BINARY_SENSOR,
-    Platform.UPDATE,
-]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.UPDATE]
 
 DOMAIN = "truenas"
 DEFAULT_NAME = "root"
@@ -20,6 +15,7 @@ DEFAULT_USERNAME = "admin"
 
 DEFAULT_DEVICE_NAME = "TrueNAS"
 DEFAULT_SSL_VERIFY = False
+DEFAULT_CRONJOB_SKIP_DISABLED = True
 
 TO_REDACT = {
     "username",
@@ -50,6 +46,8 @@ SCHEMA_SERVICE_SYSTEM_REBOOT = {}
 
 SERVICE_SYSTEM_SHUTDOWN = "system_shutdown"
 SCHEMA_SERVICE_SYSTEM_SHUTDOWN = {}
+
+CONF_CRONJOB_SKIP_DISABLED = "cronjob_skip_disabled"
 
 SERVICE_SERVICE_START = "service_start"
 SCHEMA_SERVICE_SERVICE_START = {}

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,20 +11,20 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
-    UnitOfTemperature,
     UnitOfDataRate,
     UnitOfInformation,
+    UnitOfTemperature,
 )
 from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
-    SCHEMA_SERVICE_CLOUDSYNC_RUN,
     SCHEMA_SERVICE_CLOUDSYNC_ABORT,
+    SCHEMA_SERVICE_CLOUDSYNC_RUN,
     SCHEMA_SERVICE_DATASET_SNAPSHOT,
     SCHEMA_SERVICE_SYSTEM_REBOOT,
     SCHEMA_SERVICE_SYSTEM_SHUTDOWN,
-    SERVICE_CLOUDSYNC_RUN,
     SERVICE_CLOUDSYNC_ABORT,
+    SERVICE_CLOUDSYNC_RUN,
     SERVICE_DATASET_SNAPSHOT,
     SERVICE_SYSTEM_REBOOT,
     SERVICE_SYSTEM_SHUTDOWN,
@@ -162,7 +161,7 @@ class TrueNASSensorEntityDescription(SensorEntityDescription):
     data_name: str | None = None
     data_uid: str | None = None
     data_reference: str | None = None
-    data_attributes_list: List = field(default_factory=lambda: [])
+    data_attributes_list: list = field(default_factory=lambda: [])
     func: str = "TrueNASSensor"
 
 

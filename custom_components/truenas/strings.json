@@ -6,16 +6,20 @@
                 "data": {
                     "name": "Name of the integration",
                     "host": "Host",
+                    "username": "Username",
                     "api_key": "API key",
-                    "verify_ssl": "Verify SSL certificate"
+                    "verify_ssl": "Verify SSL certificate",
+                    "cronjob_skip_disabled": "Skip disabled cronjobs on manual run"
                 }
             },
             "reconfigure": {
                 "description": "Reconfigure TrueNAS integration.",
                 "data": {
                     "host": "Host",
+                    "username": "Username",
                     "api_key": "API key",
-                    "verify_ssl": "Verify SSL certificate"
+                    "verify_ssl": "Verify SSL certificate",
+                    "cronjob_skip_disabled": "Skip disabled cronjobs on manual run"
                 }
             }
         },

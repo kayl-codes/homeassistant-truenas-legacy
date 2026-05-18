@@ -3,10 +3,9 @@
 from datetime import datetime
 from logging import getLogger
 
+from homeassistant.components.diagnostics import async_redact_data
 from pytz import utc
 from voluptuous import Optional
-
-from homeassistant.components.diagnostics import async_redact_data
 
 from .const import TO_REDACT
 
@@ -97,7 +96,7 @@ def parse_api(
 ) -> dict:
     """Get data from API."""
     debug = _LOGGER.getEffectiveLevel() == 10
-    if type(source) == dict:
+    if isinstance(source, dict):
         tmp = source
         source = [tmp]
 

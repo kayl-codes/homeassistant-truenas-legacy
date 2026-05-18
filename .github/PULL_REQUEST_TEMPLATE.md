@@ -25,6 +25,7 @@
   creating the PR. If you're unsure about any of them, don't hesitate to ask.
 -->
 - [ ] The code change is tested and works locally.
-- [ ] The code has been formatted using Black.
+- [ ] The code has been formatted and linted using Ruff.
 - [ ] Tests have been added to verify that the new code works.
 - [ ] Documentation added/updated if required.
+- [ ] Tested against the latest Home Assistant version.

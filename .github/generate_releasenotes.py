@@ -22,6 +22,7 @@
 
 import re
 import sys
+
 from github import Github
 
 BODY = """
@@ -50,10 +51,10 @@ def new_commits(repo, sha):
     dateformat = "%a, %d %b %Y %H:%M:%S GMT"
     release_commit = repo.get_commit(sha)
     since = datetime.strptime(release_commit.last_modified, dateformat)
-    commits = repo.get_commits(since=since)
-    if len(list(commits)) == 1:
+    commits = list(repo.get_commits(since=since))
+    if len(commits) <= 1:
         return False
-    return reversed(list(commits)[:-1])
+    return reversed(commits[:-1])
 
 
 def last_integration_release(github, skip=True):
@@ -104,7 +105,7 @@ def get_integration_commits(github, skip=True):
             if "\n" in msg:
                 msg = msg.split("\n")[0]
             if commit.author:
-                ath = commit.author
+                ath = commit.author.login
             else:
                 ath = "Unknown"
             changes += CHANGE.format(line=msg, link=commit.html_url, author=ath)
@@ -131,7 +132,7 @@ else:
     integration_changes = get_integration_commits(GITHUB, False)
     if integration_changes != NOCHANGE:
         VERSION = last_integration_release(GITHUB, False)["tag_name"]
-        VERSION = f"{VERSION[:-1]}{int(VERSION[-1])+1}"
+        VERSION = f"{VERSION[:-1]}{int(VERSION[-1]) + 1}"
         REPO.create_issue(
             title=f"Create release {VERSION}?",
             labels=["New release"],

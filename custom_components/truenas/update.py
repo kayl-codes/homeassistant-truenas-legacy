@@ -5,19 +5,18 @@ from __future__ import annotations
 from logging import getLogger
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
 from homeassistant.components.update import (
     UpdateDeviceClass,
     UpdateEntity,
     UpdateEntityFeature,
 )
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import TrueNASCoordinator
 from .entity import TrueNASEntity, async_add_entities
-from .update_types import SENSOR_SERVICES, SENSOR_TYPES
+from .update_types import SENSOR_SERVICES, SENSOR_TYPES  # noqa: F401
 
 _LOGGER = getLogger(__name__)
 DEVICE_UPDATE = "device_update"
@@ -62,14 +61,14 @@ class TrueNASUpdate(TrueNASEntity, UpdateEntity):
         self._attr_title = self.entity_description.title
 
     @property
-    def installed_version(self) -> str:
+    def installed_version(self) -> str | None:
         """Version installed and in use."""
-        return self._data["version"]
+        return self._data.get("version")
 
     @property
-    def latest_version(self) -> str:
+    def latest_version(self) -> str | None:
         """Latest version available for install."""
-        return self._data["update_version"]
+        return self._data.get("update_version")
 
     async def options_updated(self) -> None:
         """No action needed."""
@@ -84,15 +83,15 @@ class TrueNASUpdate(TrueNASEntity, UpdateEntity):
         await self.coordinator.async_refresh()
 
     @property
-    def in_progress(self) -> int:
+    def in_progress(self) -> int | bool:
         """Update installation progress."""
-        if self._data["update_state"] != "RUNNING":
+        if self._data.get("update_state") != "RUNNING":
             return False
 
-        if self._data["update_progress"] == 0:
+        if self._data.get("update_progress", 0) == 0:
             self._data["update_progress"] = 1
 
-        return self._data["update_progress"]
+        return self._data.get("update_progress", 1)
 
 
 # ---------------------------
@@ -115,14 +114,14 @@ class TrueNASAppUpdate(TrueNASEntity, UpdateEntity):
         self._attr_supported_features = UpdateEntityFeature.INSTALL
 
     @property
-    def installed_version(self) -> str:
+    def installed_version(self) -> str | None:
         """Version installed and in use."""
-        return self._data["version"]
+        return self._data.get("version")
 
     @property
-    def latest_version(self) -> str:
+    def latest_version(self) -> str | None:
         """Latest version available for install."""
-        return self._data["latest_version"]
+        return self._data.get("latest_version")
 
     async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
         """Install an update."""
