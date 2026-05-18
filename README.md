@@ -15,7 +15,7 @@
 
 ![Truenas Logo](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/header.png)
 
-Monitor and control your TrueNAS CORE/SCALE device from Home Assistant.
+Monitor and control your TrueNAS device from Home Assistant.
  * Monitor System (Cpu, Load, Memory, Temperature, Network, ARC/L2ARC, Uptime)
  * Monitor Disks
  * Monitor Pools (including boot-pool)
@@ -50,7 +50,7 @@ Monitor temperature and attributes for each TrueNAS disk.
 
 ## Virtual Machines
 Control and monitor status and attributes for each TrueNAS Virtual Machines.
-Virtual Machines control is available through services.
+Virtual Machines control is available through actions.
 
 ![Virtual Machines](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/vm.png)
 
@@ -58,13 +58,13 @@ Virtual Machines control is available through services.
 *TrueNAS CORE only*
 
 Control and monitor status and attributes for each TrueNAS jail.
-Jail control is available through services.
+Jail control is available through actions.
 
 ![Jails](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/jail.png)
 
 ## Cloudsync
 Control and monitor status and attributes for each TrueNAS cloudsync task.
-Jail control is available through services.
+Cloudsync control is available through actions.
 
 ![Cloudsync](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/cloudsync.png)
 
@@ -79,7 +79,7 @@ Monitor status and attributes for each TrueNAS snapshot task.
 ![Snapshot Tasks](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/snapshottask.png)
 
 ## Dataset Snapshot
-Create a Dataset Snapshot using Homeassistant service.
+Create a Dataset Snapshot using a Home Assistant action.
 Snapshot name will be automatically generated using datetime iso format with microseconds and "custom" prefix. 
 
 ![Snapshot UI](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/snapshot_ui.png)
@@ -87,13 +87,13 @@ Snapshot name will be automatically generated using datetime iso format with mic
 
 ## Services
 Control and monitor status and attributes for each TrueNAS service.
-Service control is available through services.
+Service control is available through actions.
 
 ![Services](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/service.png)
 
 ## Reboot and Shutdown
 Reboot or Shutdown a TrueNAS system.
-Service control is available through services.
+Power control is available through actions.
 Target system uptime sensor.
 
 ![image](https://user-images.githubusercontent.com/36953052/221521930-f8f789e6-deec-4cc2-b11e-740caa056e44.png)
@@ -104,8 +104,8 @@ This integration is distributed using [HACS](https://hacs.xyz/).
 You can find it under "Integrations", named "TrueNAS"
 
 Minimum requirements:
-* TrueNAS Core 12.0 or TrueNAS Scale (Any version)
-* Home Assistant 2022.2.0
+* TrueNAS 25.04
+* Home Assistant 2024.8.0
 
 ## Using TrueNAS development branch
 If you are using development branch for TrueNAS, some features may stop working.
