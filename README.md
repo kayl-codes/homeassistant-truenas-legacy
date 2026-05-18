@@ -50,7 +50,7 @@ Monitor temperature and attributes for each TrueNAS disk.
 
 ## Virtual Machines
 Control and monitor status and attributes for each TrueNAS virtual machine.
-Virtual Machines control is available through actions.
+Control of virtual machines is available through actions.
 
 ![Virtual Machines](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/vm.png)
 

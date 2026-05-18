@@ -213,11 +213,35 @@ class TrueNASAPI:
                     res = json.loads(message)
                     # Check for direct RPC error
                     if "error" in res:
-                        _LOGGER.error(
-                            "TrueNAS %s API error: %s",
-                            self._host,
-                            res["error"].get("message"),
-                        )
+                        error = res["error"]
+                        self._error = error
+
+                        err_message = error.get("message")
+                        reason = None
+                        data = error.get("data")
+                        if isinstance(data, dict):
+                            reason = data.get("reason")
+
+                        if err_message and reason:
+                            _LOGGER.error(
+                                "TrueNAS %s API error: %s (%s)",
+                                self._host,
+                                err_message,
+                                reason,
+                            )
+                        elif err_message:
+                            _LOGGER.error(
+                                "TrueNAS %s API error: %s",
+                                self._host,
+                                err_message,
+                            )
+                        else:
+                            _LOGGER.error(
+                                "TrueNAS %s API error: %s",
+                                self._host,
+                                error,
+                            )
+
                         return None
 
                     # Extract result, but keep the structure if it's already the data
