@@ -52,7 +52,10 @@ async def async_add_entities(
             """Check entity exists."""
             entity_registry = er.async_get(hass)
             if uid:
-                unique_id = f"{obj._inst.lower()}-{obj.entity_description.key}-{slugify(str(obj._data[obj.entity_description.data_reference]).lower())}"
+                unique_id = (
+                    f"{obj._inst.lower()}-{obj.entity_description.key}-"
+                    f"{slugify(str(obj._data[obj.entity_description.data_reference]).lower())}"
+                )
             else:
                 unique_id = f"{obj._inst.lower()}-{obj.entity_description.key}"
 
@@ -114,16 +117,11 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         else:
             self._data = coordinator.data[self.entity_description.data_path]
 
-        platform = ep.async_get_current_platform()
-
         dev_group = self.entity_description.ha_group
         if self.entity_description.ha_group.startswith("data__"):
             dev_group = self.entity_description.ha_group[6:]
             if dev_group in self._data:
                 dev_group = self._data[dev_group]
-
-        # do not use, else it ocours errors, because of timinig issues and it dosent needed, because _attr_has_entity_name equale True
-        # self.entity_id = f"{platform.domain}.{self._inst.lower()}_{slugify(str(dev_group).lower())}_{slugify(str(self.name).lower())}"
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -141,7 +139,10 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
             return f"{self.entity_description.name}"
 
         if self.entity_description.name:
-            return f"{self._data[self.entity_description.data_name]} {self.entity_description.name}"
+            return (
+                f"{self._data[self.entity_description.data_name]} "
+                f"{self.entity_description.name}"
+            )
 
         return f"{self._data[self.entity_description.data_name]}"
 
@@ -149,7 +150,10 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
     def unique_id(self) -> str:
         """Return a unique id for this entity."""
         if self._uid:
-            return f"{self._inst.lower()}-{self.entity_description.key}-{slugify(str(self._data[self.entity_description.data_reference]).lower())}"
+            return (
+                f"{self._inst.lower()}-{self.entity_description.key}-"
+                f"{slugify(str(self._data[self.entity_description.data_reference]).lower())}"
+            )
         else:
             return f"{self._inst.lower()}-{self.entity_description.key}"
 

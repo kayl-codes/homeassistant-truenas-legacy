@@ -327,7 +327,8 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
 
                 _LOGGER.debug("TrueNAS Update found: %s", new_version_obj["version"])
             else:
-                # No new version in the status object, keep current version as update_version
+                # No new version in status object, keep current
+
                 self.ds["system_info"]["update_version"] = self.ds["system_info"].get(
                     "version", "up-to-date"
                 )
@@ -806,8 +807,12 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
             for uid, vals in self.ds["disk"].items():
                 if vals["name"] in temps:  # looks for devname here
                     self.ds["disk"][uid]["temperature"] = temps[vals["name"]]
-                    # return devname temp to uid disk
-                    # I feel like this will break in the future when TrueNAS updates to a more sensible system. Currently their own long term stats are broken by the changing devnames.
+                    # TODO: This is a workaround for the changing devnames in TrueNAS,
+                    # which can break long-term statistics.
+                    # I feel like this will break in the future when TrueNAS
+                    # updates to a more sensible system.
+                    # Currently their own long term stats are broken
+                    # by the changing devnames.
 
     def _disk_temps_from_netdata(self) -> dict[str, float] | None:
         """Return disk temperatures from netdata graphs when available."""
