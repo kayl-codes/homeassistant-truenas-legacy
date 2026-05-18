@@ -206,9 +206,13 @@ class TrueNASAPI(object):
                     res = json.loads(message)
                     # Check for direct RPC error
                     if "error" in res:
-                        _LOGGER.error("TrueNAS %s API error: %s", self._host, res["error"].get("message"))
+                        _LOGGER.error(
+                            "TrueNAS %s API error: %s",
+                            self._host,
+                            res["error"].get("message"),
+                        )
                         return None
-                    
+
                     # Extract result, but keep the structure if it's already the data
                     data = res.get("result", res)
                     
@@ -222,7 +226,7 @@ class TrueNASAPI(object):
                         "TrueNAS %s query (%s) response: %s", self._host, service, data
                     )
             except Exception as e:
-                # Dieser Block fängt jetzt nur noch echte Systemfehler (z.B. Verbindungsabbruch)
+                # Catch only real system errors, e.g., connection loss
                 _LOGGER.warning(
                     'TrueNAS %s unable to fetch data "%s" (%s)',
                     self._host,
