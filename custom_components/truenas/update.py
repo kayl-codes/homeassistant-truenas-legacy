@@ -17,7 +17,7 @@ from homeassistant.components.update import (
 
 from .coordinator import TrueNASCoordinator
 from .entity import TrueNASEntity, async_add_entities
-from .update_types import SENSOR_SERVICES, SENSOR_TYPES
+from .update_types import SENSOR_SERVICES, SENSOR_TYPES  # noqa: F401
 
 _LOGGER = getLogger(__name__)
 DEVICE_UPDATE = "device_update"

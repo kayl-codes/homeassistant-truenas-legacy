@@ -22,11 +22,13 @@ class TrueNASAPI(object):
     def __init__(
         self,
         host: str,
+        username: str,
         api_key: str,
         verify_ssl: bool = True,
     ) -> None:
         """Initialize the TrueNAS API."""
         self._host = host
+        self._username = username
         self._api_key = api_key
         self._ssl_verify = verify_ssl
         self._url = f"wss://{self._host}/api/current"
@@ -97,15 +99,27 @@ class TrueNASAPI(object):
 
             try:
                 payload = {
-                    "method": "auth.login_with_api_key",
+                    "method": "auth.login_ex",
                     "jsonrpc": "2.0",
                     "id": 0,
-                    "params": [self._api_key],
+                    "params": [
+                        {
+                            "mechanism": "API_KEY_PLAIN",
+                            "username": self._username,
+                            "api_key": self._api_key,
+                            "login_options": {"user_info": False},
+                        }
+                    ],
                 }
                 self._ws.send(json.dumps(payload))
                 message = self._ws.recv()
                 data = json.loads(message)
-                self._connected = data["result"]
+                result = data.get("result")
+                if isinstance(result, dict):
+                    self._connected = result.get("response_type") == "SUCCESS"
+                else:
+                    self._connected = bool(result)
+
                 if not self._connected:
                     self._error = "invalid_key"
 
@@ -160,7 +174,7 @@ class TrueNASAPI(object):
     # ---------------------------
     #   query
     # ---------------------------
-    def query(self, service: str, params: dict[str, Any] | None = {}) -> list | None:
+    def query(self, service: str, params: dict[str, Any] | None = {}) -> list | dict | None:
         """Retrieve data from TrueNAS."""
         if not self.connected():
             self.connect()
@@ -187,38 +201,28 @@ class TrueNASAPI(object):
 
                 self._ws.send(json.dumps(payload))
                 message = self._ws.recv()
+                
                 if message.startswith("{"):
-                    data = json.loads(message)
-                    if "result" in data:
-                        data = data["result"]
-                    else:
-                        self._error = "malformed_result"
-
-                    if (type(data) is list or type(data) is dict) and "error" in data:
-                        if (
-                            "data" in data["error"]
-                            and "reason" in data["error"]["data"]
-                        ):
-                            _LOGGER.error(
-                                "TrueNAS %s query (%s) error: %s",
-                                self._host,
-                                service,
-                                data["error"]["data"]["reason"],
-                            )
-                        else:
-                            _LOGGER.error(
-                                "TrueNAS %s query (%s) error: %s",
-                                self._host,
-                                service,
-                                data["error"]["message"],
-                            )
+                    res = json.loads(message)
+                    # Check for direct RPC error
+                    if "error" in res:
+                        _LOGGER.error("TrueNAS %s API error: %s", self._host, res["error"].get("message"))
+                        return None
+                    
+                    # Extract result, but keep the structure if it's already the data
+                    data = res.get("result", res)
+                    
+                    # If the API returns 'null' (None), we return None to the coordinator
+                    if data is None:
+                        return None
                 else:
                     data = message
-
-                _LOGGER.debug(
-                    "TrueNAS %s query (%s) response: %s", self._host, service, data
-                )
+                    
+                    _LOGGER.debug(
+                        "TrueNAS %s query (%s) response: %s", self._host, service, data
+                    )
             except Exception as e:
+                # Dieser Block fängt jetzt nur noch echte Systemfehler (z.B. Verbindungsabbruch)
                 _LOGGER.warning(
                     'TrueNAS %s unable to fetch data "%s" (%s)',
                     self._host,

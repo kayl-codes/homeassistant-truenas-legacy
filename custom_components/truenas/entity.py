@@ -120,7 +120,8 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
             if dev_group in self._data:
                 dev_group = self._data[dev_group]
 
-        self.entity_id = f"{platform.domain}.{self._inst.lower()}_{slugify(str(dev_group).lower())}_{slugify(str(self.name).lower())}"
+        # do not use, else it ocours errors, because of timinig issues and it dosent needed, because _attr_has_entity_name equale True
+        #self.entity_id = f"{platform.domain}.{self._inst.lower()}_{slugify(str(dev_group).lower())}_{slugify(str(self.name).lower())}"
 
     @callback
     def _handle_coordinator_update(self) -> None:
