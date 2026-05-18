@@ -69,7 +69,7 @@ jobs:
       - name: Install Bandit
         run: pip install bandit
       - name: Security check - Bandit
-        run: bandit -r custom_components/truenas -c .github/bandit.yaml
+        run: bandit -r custom_components/truenas
 
   validate:
     name: Check hassfest
