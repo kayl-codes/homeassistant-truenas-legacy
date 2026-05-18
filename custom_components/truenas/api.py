@@ -1,12 +1,12 @@
 """TrueNAS API."""
 
+import json
 from logging import getLogger
+import ssl
 from threading import Lock
 from typing import Any
 
-import ssl
-import json
-from websockets.sync.client import connect, ClientConnection
+from websockets.sync.client import ClientConnection, connect
 
 _LOGGER = getLogger(__name__)
 
