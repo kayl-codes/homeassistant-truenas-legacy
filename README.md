@@ -16,7 +16,7 @@
 ![Truenas Logo](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/header.png)
 
 Monitor and control your TrueNAS device from Home Assistant.
- * Monitor System (Cpu, Load, Memory, Temperature, Network, ARC/L2ARC, Uptime)
+ * Monitor System (CPU, Load, Memory, Temperature, Network, ARC/L2ARC, Uptime)
  * Monitor Disks
  * Monitor Pools (including boot-pool)
  * Monitor Datasets
@@ -49,7 +49,7 @@ Monitor temperature and attributes for each TrueNAS disk.
 ![Disks](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/disk.png)
 
 ## Virtual Machines
-Control and monitor status and attributes for each TrueNAS Virtual Machines.
+Control and monitor status and attributes for each TrueNAS virtual machine.
 Virtual Machines control is available through actions.
 
 ![Virtual Machines](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/vm.png)
@@ -92,7 +92,7 @@ Service control is available through actions.
 ![Services](https://raw.githubusercontent.com/tomaae/homeassistant-truenas/master/docs/assets/images/ui/service.png)
 
 ## Reboot and Shutdown
-Reboot or Shutdown a TrueNAS system.
+Reboot or shut down a TrueNAS system.
 Power control is available through actions.
 Target system uptime sensor.
 

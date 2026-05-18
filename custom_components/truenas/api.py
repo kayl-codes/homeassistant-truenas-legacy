@@ -177,9 +177,12 @@ class TrueNASAPI:
     def query(
         self,
         service: str,
-        params: dict[str, Any] | None = {},
-    ) -> list | dict | None:
+        params: dict[str, Any] | list[Any] | None = None,
+    ) -> list | dict | str | None:
         """Retrieve data from TrueNAS."""
+        if params is None:
+            params = {}
+
         if not self.connected():
             self.connect()
 
@@ -226,9 +229,9 @@ class TrueNASAPI:
                 else:
                     data = message
 
-                    _LOGGER.debug(
-                        "TrueNAS %s query (%s) response: %s", self._host, service, data
-                    )
+                _LOGGER.debug(
+                    "TrueNAS %s query (%s) response: %s", self._host, service, data
+                )
             except Exception as e:
                 # Catch only real system errors, e.g., connection loss
                 _LOGGER.warning(

@@ -1059,7 +1059,16 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
             ],
         )
 
-        for uid, vals in self.ds["cronjob"].items():
+        skip_disabled = self.config_entry.options.get(
+            "cronjob_skip_disabled",
+            self.config_entry.data.get("cronjob_skip_disabled", False),
+        )
+
+        for uid, vals in list(self.ds["cronjob"].items()):
+            if skip_disabled and not vals.get("enabled", True):
+                self.ds["cronjob"].pop(uid)
+                continue
+
             description = (vals.get("description") or "").strip()
             command = (vals.get("command") or "").strip()
             if description:

@@ -114,7 +114,7 @@ class TrueNASDatasetSensor(TrueNASSensor):
             "pool.snapshot.create",
             payload,
         )
-        if isinstance(result, dict) and "error" in result:
+        if result is None:
             await self.hass.async_add_executor_job(
                 self.coordinator.api.query,
                 "zfs.snapshot.create",
