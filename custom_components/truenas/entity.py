@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from logging import getLogger
-from typing import Any, Callable
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION, CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import (
     entity_platform as ep,
+)
+from homeassistant.helpers import (
     entity_registry as er,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -121,7 +123,7 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
                 dev_group = self._data[dev_group]
 
         # do not use, else it ocours errors, because of timinig issues and it dosent needed, because _attr_has_entity_name equale True
-        #self.entity_id = f"{platform.domain}.{self._inst.lower()}_{slugify(str(dev_group).lower())}_{slugify(str(self.name).lower())}"
+        # self.entity_id = f"{platform.domain}.{self._inst.lower()}_{slugify(str(dev_group).lower())}_{slugify(str(self.name).lower())}"
 
     @callback
     def _handle_coordinator_update(self) -> None:

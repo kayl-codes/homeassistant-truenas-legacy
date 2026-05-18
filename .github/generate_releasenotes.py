@@ -132,7 +132,7 @@ else:
     integration_changes = get_integration_commits(GITHUB, False)
     if integration_changes != NOCHANGE:
         VERSION = last_integration_release(GITHUB, False)["tag_name"]
-        VERSION = f"{VERSION[:-1]}{int(VERSION[-1])+1}"
+        VERSION = f"{VERSION[:-1]}{int(VERSION[-1]) + 1}"
         REPO.create_issue(
             title=f"Create release {VERSION}?",
             labels=["New release"],

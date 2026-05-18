@@ -7,7 +7,6 @@ from logging import getLogger
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import (
     CONN_CLASS_LOCAL_POLL,
     ConfigFlow,
@@ -22,6 +21,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 
+from .api import TrueNASAPI
 from .const import (
     CONF_CRONJOB_SKIP_DISABLED,
     DEFAULT_CRONJOB_SKIP_DISABLED,
@@ -31,7 +31,6 @@ from .const import (
     DEFAULT_USERNAME,
     DOMAIN,
 )
-from .api import TrueNASAPI
 
 _LOGGER = getLogger(__name__)
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+
 from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
@@ -80,7 +80,7 @@ class TrueNASBinarySensorEntityDescription(BinarySensorEntityDescription):
     data_name: str | None = None
     data_uid: str | None = None
     data_reference: str | None = None
-    data_attributes_list: List = field(default_factory=lambda: [])
+    data_attributes_list: list = field(default_factory=lambda: [])
     func: str = "TrueNASBinarySensor"
 
 

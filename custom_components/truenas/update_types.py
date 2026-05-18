@@ -39,7 +39,7 @@ SENSOR_TYPES: tuple[TrueNASUpdateEntityDescription, ...] = (
             "update_date",
             "update_profile",
             "update_train",
-            "update_filename"
+            "update_filename",
         ],
         func="TrueNASUpdate",
     ),

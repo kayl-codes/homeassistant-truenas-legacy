@@ -1,15 +1,10 @@
 """Constants used by the TrueNAS integration."""
 
 import voluptuous as vol
-
 from homeassistant.const import Platform
 from homeassistant.helpers import config_validation as cv
 
-PLATFORMS = [
-    Platform.SENSOR,
-    Platform.BINARY_SENSOR,
-    Platform.UPDATE
-]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.UPDATE]
 
 DOMAIN = "truenas"
 DEFAULT_NAME = "root"

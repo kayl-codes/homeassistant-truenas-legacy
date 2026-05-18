@@ -3,13 +3,9 @@
 from __future__ import annotations
 
 import logging
-
 from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
@@ -17,9 +13,11 @@ from homeassistant.const import (
     CONF_USERNAME,
     CONF_VERIFY_SSL,
 )
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import TrueNASAPI
-from .apiparser import parse_api, utc_from_timestamp
+from .apiparser import parse_api
 from .const import DEFAULT_USERNAME, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -169,7 +167,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
                 {"name": "update_version", "default": "unknown"},
             ],
         )
-        
+
         if not self.api.connected():
             return
 
@@ -215,8 +213,12 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
         version_parts = clean_version.split(".")
 
         try:
-            self._version_major = int(version_parts[0]) if len(version_parts) > 0 else 25
-            self._version_minor = int(version_parts[1]) if len(version_parts) > 1 else 10
+            self._version_major = (
+                int(version_parts[0]) if len(version_parts) > 0 else 25
+            )
+            self._version_minor = (
+                int(version_parts[1]) if len(version_parts) > 1 else 10
+            )
         except (ValueError, IndexError):
             self._version_major, self._version_minor = 25, 10
 
@@ -234,7 +236,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
         # Uptime calculation
         if self.ds["system_info"]["uptime_seconds"] > 0:
             from datetime import datetime, timedelta
+
             from homeassistant.util.dt import utc_from_timestamp
+
             now = datetime.now().replace(microsecond=0)
             uptime_tm = datetime.timestamp(
                 now - timedelta(seconds=int(self.ds["system_info"]["uptime_seconds"]))
@@ -287,12 +291,16 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
     def get_updatecheck(self) -> None:
         """Check for updates using the new 25.10/26.04 API structure."""
         update_data = self.api.query("update.status")
-        
+
         # Initialize default values to prevent invalid entity IDs
         self.ds["system_info"]["update_available"] = False
         self.ds["system_info"]["update_status"] = "IDLE"
-        if "update_version" not in self.ds["system_info"] or self.ds["system_info"]["update_version"] in [None, "unknown", ""]:
-            self.ds["system_info"]["update_version"] = self.ds["system_info"].get("version", "up-to-date")
+        if "update_version" not in self.ds["system_info"] or self.ds["system_info"][
+            "update_version"
+        ] in [None, "unknown", ""]:
+            self.ds["system_info"]["update_version"] = self.ds["system_info"].get(
+                "version", "up-to-date"
+            )
 
         # If API returns nothing, we already set defaults above, so just return
         if not update_data or not isinstance(update_data, dict):
@@ -303,24 +311,26 @@ class TrueNASCoordinator(DataUpdateCoordinator[None]):
         status_obj = update_data.get("status")
         if isinstance(status_obj, dict):
             new_version_obj = status_obj.get("new_version")
-            
+
             # Check if new_version exists and contains a version string
             if isinstance(new_version_obj, dict) and new_version_obj.get("version"):
                 self.ds["system_info"]["update_status"] = "AVAILABLE"
                 self.ds["system_info"]["update_version"] = new_version_obj["version"]
                 self.ds["system_info"]["update_available"] = True
-                
+
                 # ADD EXTRA INFO AS ATTRIBUTES
                 manifest = new_version_obj.get("manifest", {})
                 self.ds["system_info"]["update_date"] = manifest.get("date")
                 self.ds["system_info"]["update_profile"] = manifest.get("profile")
                 self.ds["system_info"]["update_train"] = manifest.get("train")
                 self.ds["system_info"]["update_filename"] = manifest.get("filename")
-                
+
                 _LOGGER.debug("TrueNAS Update found: %s", new_version_obj["version"])
             else:
                 # No new version in the status object, keep current version as update_version
-                self.ds["system_info"]["update_version"] = self.ds["system_info"].get("version", "up-to-date")
+                self.ds["system_info"]["update_version"] = self.ds["system_info"].get(
+                    "version", "up-to-date"
+                )
 
                 self.ds["system_info"]["update_date"] = None
                 self.ds["system_info"]["update_profile"] = None

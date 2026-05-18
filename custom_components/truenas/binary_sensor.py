@@ -1,6 +1,7 @@
 """TrueNAS binary sensor platform."""
 
 from __future__ import annotations
+
 from logging import getLogger
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
