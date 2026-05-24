@@ -26,7 +26,7 @@ import sys
 from github import Github
 
 BODY = """
-[![Downloads for this release](https://img.shields.io/github/downloads/tomaae/homeassistant-truenas/{version}/total.svg)](https://github.com/tomaae/homeassistant-truenas/releases/{version})
+[![Downloads for this release](https://img.shields.io/github/downloads/kayl-codes/homeassistant-truenas/{version}/total.svg)](https://github.com/kayl-codes/homeassistant-truenas/releases/{version})
 
 {changes}
 """
@@ -59,7 +59,7 @@ def new_commits(repo, sha):
 
 def last_integration_release(github, skip=True):
     """Return last release."""
-    repo = github.get_repo("tomaae/homeassistant-truenas")
+    repo = github.get_repo("kayl-codes/homeassistant-truenas")
     tag_sha = None
     data = {}
     tags = list(repo.get_tags())
@@ -80,7 +80,7 @@ def last_integration_release(github, skip=True):
 
 def get_integration_commits(github, skip=True):
     changes = ""
-    repo = github.get_repo("tomaae/homeassistant-truenas")
+    repo = github.get_repo("kayl-codes/homeassistant-truenas")
     commits = new_commits(repo, last_integration_release(github, skip)["tag_sha"])
 
     if not commits:
@@ -115,7 +115,7 @@ def get_integration_commits(github, skip=True):
 
 # Update release notes:
 UPDATERELEASE = str(sys.argv[4])
-REPO = GITHUB.get_repo("tomaae/homeassistant-truenas")
+REPO = GITHUB.get_repo("kayl-codes/homeassistant-truenas")
 if UPDATERELEASE == "yes":
     VERSION = str(sys.argv[6]).replace("refs/tags/", "")
     RELEASE = REPO.get_release(VERSION)
@@ -136,7 +136,7 @@ else:
         REPO.create_issue(
             title=f"Create release {VERSION}?",
             labels=["New release"],
-            assignee="tomaae",
+            assignee="kayl-codes",
             body=CHANGES.format(
                 integration_changes=integration_changes,
             ),

@@ -148,9 +148,9 @@ async def _async_check_port(host: str, verify_ssl: bool) -> tuple[bool, int]:
     if host.startswith("["):
         if "]:" in host:
             addr, p_str = host.rsplit("]:", 1)
-            h = f"{addr}]"
+            h = addr[1:] if addr.startswith("[") else addr
         else:
-            addr = host
+            h = host[1:-1] if host.endswith("]") else host
             p_str = None
 
         if p_str:
@@ -165,8 +165,6 @@ async def _async_check_port(host: str, verify_ssl: bool) -> tuple[bool, int]:
                 )
                 p = None
 
-        if h.startswith("[") and h.endswith("]"):
-            h = h[1:-1]
     elif host.count(":") == 1:
         h, p_str = host.rsplit(":", 1)
         try:

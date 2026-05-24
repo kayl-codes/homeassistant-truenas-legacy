@@ -15,14 +15,16 @@
 
 ![Truenas Logo](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/header.png)
 
+> **Note:** This is an actively maintained and updated fork of the original TrueNAS integration.
+
 Monitor and control your TrueNAS device from Home Assistant.
- * Monitor System (CPU, Load, Memory, Temperature, Network, ARC/L2ARC, Uptime, Alerts, SMB Connections)
+ * Monitor System (CPU, Load, Memory, Temperature, Network, ARC/L2ARC, Uptime)
  * Monitor Disks
  * Monitor Pools (including boot-pool)
  * Monitor Datasets
  * Monitor Replication Tasks
  * Monitor Snapshot Tasks
- * Control and Monitor Services (including S.M.A.R.T., UPS, SSH, FTP, etc.)
+ * Control and Monitor Services
  * Control and Monitor Virtual Machines
  * Control and Monitor Jails (TrueNAS CORE only)
  * Control and Monitor Cloudsync
@@ -89,8 +91,7 @@ Snapshot name will be automatically generated using datetime iso format with mic
 Control and monitor status and attributes for each TrueNAS service.
 Service control is available through actions.
 
-![Services](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service_1.png)
-![Services](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service_2.png)
+![Services](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service.png)
 
 ## Reboot and Shutdown
 Reboot or shut down a TrueNAS system.
