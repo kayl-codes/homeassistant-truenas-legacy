@@ -1,15 +1,39 @@
 """API parser for JSON APIs."""
 
+from collections.abc import Hashable
 from datetime import datetime
 from logging import getLogger
+from typing import Any, TypedDict
 
 from homeassistant.components.diagnostics import async_redact_data
 from pytz import utc
-from voluptuous import Optional
 
 from .const import TO_REDACT
 
 _LOGGER = getLogger(__name__)
+
+
+MILLIS_TIMESTAMP_THRESHOLD: int = 100_000_000_000
+"""Threshold used to distinguish second-based from millisecond-based Unix timestamps.
+
+Values greater than this are assumed to be in milliseconds and will be divided by 1000
+before conversion.
+"""
+
+
+# ---------------------------
+#   ApiValueSpec
+# ---------------------------
+class ApiValueSpec(TypedDict, total=False):
+    """Specification for values parsed from the API."""
+
+    name: str
+    type: str
+    source: str
+    default: Any
+    default_val: str
+    reverse: bool
+    convert: str
 
 
 # ---------------------------
@@ -23,30 +47,36 @@ def utc_from_timestamp(timestamp: float) -> datetime:
 # ---------------------------
 #   from_entry
 # ---------------------------
-def from_entry(entry, param, default="") -> str:
-    """Validate and return str value an API dict."""
+def from_entry(
+    entry: dict[str, Any] | None,
+    param: str,
+    default: Any = "",
+    max_len: int | None = 255,
+    round_digits: int | None = None,
+) -> Any:
+    """Validate and return value from an API dict."""
+    if entry is None:
+        return default
+
     if "/" in param:
+        current: Any = entry
         for tmp_param in param.split("/"):
-            if isinstance(entry, dict) and tmp_param in entry:
-                entry = entry[tmp_param]
+            if isinstance(current, dict) and tmp_param in current:
+                current = current[tmp_param]
             else:
                 return default
-
-        ret = entry
-    elif param in entry:
+        ret: Any = current
+    elif isinstance(entry, dict) and param in entry:
         ret = entry[param]
     else:
         return default
 
-    if default != "":
-        if isinstance(ret, str):
-            ret = str(ret)
-        elif isinstance(ret, int):
-            ret = int(ret)
-        elif isinstance(ret, float):
-            ret = round(float(ret), 2)
+    if isinstance(ret, float) and round_digits is not None:
+        ret = round(ret, round_digits)
 
-    return ret[:255] if isinstance(ret, str) and len(ret) > 255 else ret
+    if isinstance(ret, str) and max_len is not None and len(ret) > max_len:
+        return ret[:max_len]
+    return ret
 
 
 # ---------------------------
@@ -62,15 +92,16 @@ def from_entry_bool(entry, param, default=False, reverse=False) -> bool:
                 return default
 
         ret = entry
-    elif param in entry:
+    elif isinstance(entry, dict) and param in entry:
         ret = entry[param]
     else:
         return default
 
     if isinstance(ret, str):
-        if ret in ("on", "On", "ON", "yes", "Yes", "YES", "up", "Up", "UP"):
+        normalized = ret.strip().lower()
+        if normalized in {"on", "yes", "up", "true", "1"}:
             ret = True
-        elif ret in ("off", "Off", "OFF", "no", "No", "NO", "down", "Down", "DOWN"):
+        elif normalized in {"off", "no", "down", "false", "0"}:
             ret = False
 
     if not isinstance(ret, bool):
@@ -83,18 +114,20 @@ def from_entry_bool(entry, param, default=False, reverse=False) -> bool:
 #   parse_api
 # ---------------------------
 def parse_api(
-    data=None,
-    source=None,
-    key=None,
-    key_secondary=None,
-    key_search=None,
-    vals=None,
-    val_proc=None,
-    ensure_vals=None,
-    only=None,
-    skip=None,
-) -> dict:
+    data: dict[str, Any] | None = None,
+    source: dict[str, Any] | list[dict[str, Any]] | None = None,
+    key: str | None = None,
+    key_secondary: str | None = None,
+    key_search: str | None = None,
+    vals: list[ApiValueSpec] | None = None,
+    val_proc: list[list[dict[str, Any]]] | None = None,
+    ensure_vals: list[ApiValueSpec] | None = None,
+    only: list[dict[str, Any]] | None = None,
+    skip: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Get data from API."""
+    if data is None:
+        data = {}
     debug = _LOGGER.getEffectiveLevel() == 10
     if isinstance(source, dict):
         tmp = source
@@ -119,7 +152,7 @@ def parse_api(
         uid = None
         if key or key_search:
             uid = get_uid(entry, key, key_secondary, key_search, keymap)
-            if not uid:
+            if uid is None:
                 continue
 
             if uid not in data:
@@ -143,58 +176,49 @@ def parse_api(
 # ---------------------------
 #   get_uid
 # ---------------------------
-def get_uid(entry, key, key_secondary, key_search, keymap) -> Optional(str):
+def get_uid(entry, key, key_secondary, key_search, keymap) -> str | None:
     """Get UID for data list."""
-    uid = None
-    if not key_search:
-        key_primary_found = key in entry
-        if key_primary_found and key not in entry and not entry[key]:
-            return None
-
-        if key_primary_found:
-            uid = entry[key]
-        elif key_secondary:
-            if key_secondary not in entry:
-                return None
-
-            if not entry[key_secondary]:
-                return None
-
-            uid = entry[key_secondary]
-    elif keymap and key_search in entry and entry[key_search] in keymap:
-        uid = keymap[entry[key_search]]
-    else:
+    if not isinstance(entry, dict):
         return None
 
-    return uid or None
+    uid = None
+    if not key_search:
+        if key is not None and key in entry:
+            uid = entry[key]
+        elif key_secondary is not None:
+            uid = entry.get(key_secondary)
+    elif keymap and key_search is not None and key_search in entry:
+        uid = keymap.get(entry[key_search])
+
+    return uid
 
 
 # ---------------------------
 #   generate_keymap
 # ---------------------------
-def generate_keymap(data, key_search) -> Optional(dict):
+def generate_keymap(
+    data: dict[str, dict[str, Any]], key_search: str | None
+) -> dict[Hashable, str] | None:
     """Generate keymap."""
-    return (
-        {data[uid][key_search]: uid for uid in data if key_search in data[uid]}
-        if key_search
-        else None
-    )
+    if not key_search:
+        return None
+    return {
+        data[uid][key_search]: uid
+        for uid in data
+        if key_search in data[uid] and isinstance(data[uid][key_search], Hashable)
+    }
 
 
 # ---------------------------
 #   matches_only
 # ---------------------------
-def matches_only(entry, only) -> bool:
+def matches_only(entry: dict[str, Any], only: list[dict[str, Any]]) -> bool:
     """Return True if all variables are matched."""
-    ret = False
     for val in only:
-        if val["key"] in entry and entry[val["key"]] == val["value"]:
-            ret = True
-        else:
-            ret = False
-            break
+        if entry.get(val["key"]) != val["value"]:
+            return False
 
-    return ret
+    return True
 
 
 # ---------------------------
@@ -220,10 +244,14 @@ def can_skip(entry, skip) -> bool:
 # ---------------------------
 def fill_defaults(data, vals) -> dict:
     """Fill defaults if source is not present."""
+    if data is None:
+        data = {}
+    if not vals:
+        return data
+
     for val in vals:
         _name = val["name"]
         _type = val["type"] if "type" in val else "str"
-        _source = val["source"] if "source" in val else _name
 
         if _type == "str":
             _default = val["default"] if "default" in val else ""
@@ -231,15 +259,13 @@ def fill_defaults(data, vals) -> dict:
                 _default = val[val["default_val"]]
 
             if _name not in data:
-                data[_name] = from_entry([], _source, default=_default)
+                data[_name] = _default
 
         elif _type == "bool":
             _default = val["default"] if "default" in val else False
             _reverse = val["reverse"] if "reverse" in val else False
             if _name not in data:
-                data[_name] = from_entry_bool(
-                    [], _source, default=_default, reverse=_reverse
-                )
+                data[_name] = not _default if _reverse else _default
 
     return data
 
@@ -260,7 +286,7 @@ def fill_vals(data, entry, uid, vals) -> dict:
             if "default_val" in val and val["default_val"] in val:
                 _default = val[val["default_val"]]
 
-            if uid:
+            if uid is not None:
                 data[uid][_name] = from_entry(entry, _source, default=_default)
             else:
                 data[_name] = from_entry(entry, _source, default=_default)
@@ -269,7 +295,7 @@ def fill_vals(data, entry, uid, vals) -> dict:
             _default = val["default"] if "default" in val else False
             _reverse = val["reverse"] if "reverse" in val else False
 
-            if uid:
+            if uid is not None:
                 data[uid][_name] = from_entry_bool(
                     entry, _source, default=_default, reverse=_reverse
                 )
@@ -279,14 +305,14 @@ def fill_vals(data, entry, uid, vals) -> dict:
                 )
 
         if _convert == "utc_from_timestamp":
-            if uid:
+            if uid is not None:
                 if isinstance(data[uid][_name], int) and data[uid][_name] > 0:
-                    if data[uid][_name] > 100000000000:
+                    if data[uid][_name] > MILLIS_TIMESTAMP_THRESHOLD:
                         data[uid][_name] = data[uid][_name] / 1000
 
                     data[uid][_name] = utc_from_timestamp(data[uid][_name])
             elif isinstance(data[_name], int) and data[_name] > 0:
-                if data[_name] > 100000000000:
+                if data[_name] > MILLIS_TIMESTAMP_THRESHOLD:
                     data[_name] = data[_name] / 1000
 
                 data[_name] = utc_from_timestamp(data[_name])
@@ -299,8 +325,11 @@ def fill_vals(data, entry, uid, vals) -> dict:
 # ---------------------------
 def fill_ensure_vals(data, uid, ensure_vals) -> dict:
     """Add required keys which are not available in data."""
+    if uid is not None and uid not in data:
+        data[uid] = {}
+
     for val in ensure_vals:
-        if uid:
+        if uid is not None:
             if val["name"] not in data[uid]:
                 _default = val["default"] if "default" in val else ""
                 data[uid][val["name"]] = _default
@@ -317,7 +346,9 @@ def fill_ensure_vals(data, uid, ensure_vals) -> dict:
 # ---------------------------
 def fill_vals_proc(data, uid, vals_proc) -> dict:
     """Add custom keys."""
-    _data = data[uid] if uid else data
+    _data = data[uid] if uid is not None else data
+    supported_actions = {"combine"}
+
     for val_sub in vals_proc:
         _name = None
         _action = None
@@ -329,6 +360,11 @@ def fill_vals_proc(data, uid, vals_proc) -> dict:
 
             if "action" in val:
                 _action = val["action"]
+                if _action not in supported_actions:
+                    raise ValueError(
+                        f"Unsupported action '{_action}' in vals_proc "
+                        f"for name '{_name}'"
+                    )
                 continue
 
             if not _name and not _action:
@@ -343,8 +379,8 @@ def fill_vals_proc(data, uid, vals_proc) -> dict:
                     tmp = val["text"]
                     _value = f"{_value}{tmp}" if _value else tmp
 
-        if _name and _value:
-            if uid:
+        if _name and _value is not None:
+            if uid is not None:
                 data[uid][_name] = _value
             else:
                 data[_name] = _value

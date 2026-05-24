@@ -1,4 +1,4 @@
-"""TrueNAS binary sensor platform."""
+"""TrueNAS update platform."""
 
 from __future__ import annotations
 
@@ -73,13 +73,22 @@ class TrueNASUpdate(TrueNASEntity, UpdateEntity):
     async def options_updated(self) -> None:
         """No action needed."""
 
-    async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
-        """Install an update."""
-        self._data["update_jobid"] = await self.hass.async_add_executor_job(
+    async def async_install(self, _version: str, backup: bool, **kwargs: Any) -> None:
+        """Install the latest available update.
+
+        The version parameter is currently ignored; TrueNAS API only supports
+        installing the latest available firmware via update.update.
+        """
+        job_id = await self.hass.async_add_executor_job(
             self.coordinator.api.query,
             "update.update",
             {"reboot": True},
         )
+        if job_id is None:
+            _LOGGER.error("Failed to start TrueNAS system update")
+            return
+
+        self._data["update_jobid"] = job_id
         await self.coordinator.async_refresh()
 
     @property
@@ -88,10 +97,7 @@ class TrueNASUpdate(TrueNASEntity, UpdateEntity):
         if self._data.get("update_state") != "RUNNING":
             return False
 
-        if self._data.get("update_progress", 0) == 0:
-            self._data["update_progress"] = 1
-
-        return self._data.get("update_progress", 1)
+        return int(self._data.get("update_progress", 0))
 
 
 # ---------------------------
@@ -123,20 +129,26 @@ class TrueNASAppUpdate(TrueNASEntity, UpdateEntity):
         """Latest version available for install."""
         return self._data.get("latest_version")
 
-    async def async_install(self, version: str, backup: bool, **kwargs: Any) -> None:
+    async def async_install(self, _version: str, backup: bool, **kwargs: Any) -> None:
         """Install an update."""
-        if self.coordinator.data["app"][self._data["id"]]["state"] != "RUNNING":
+        app_data = self.coordinator.data.get("app", {}).get(self._data["id"], {})
+        if app_data.get("state") != "RUNNING":
             _LOGGER.error(
-                "In order to upgrade an app %s, it must not be in stopped state.",
+                "In order to upgrade the app %s, it must be in the RUNNING state.",
                 self._data["id"],
             )
             return
 
-        self._data["update_jobid"] = await self.hass.async_add_executor_job(
+        job_id = await self.hass.async_add_executor_job(
             self.coordinator.api.query,
             "app.upgrade",
             [self._data["id"]],
         )
+        if job_id is None:
+            _LOGGER.error("Failed to start TrueNAS app update for %s", self._data["id"])
+            return
+
+        self._data["update_jobid"] = job_id
         await self.coordinator.async_refresh()
 
     @property

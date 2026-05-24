@@ -42,48 +42,53 @@ async def async_add_entities(
     descriptions = platform.platform.SENSOR_TYPES
 
     for service in services:
-        platform.async_register_entity_service(service[0], service[1], service[2])
+        platform.async_register_entity_service(
+            service.name, service.schema, service.action
+        )
 
-    @callback
     async def async_update_controller(coordinator):
         """Update the values of the controller."""
 
-        async def async_check_exist(obj, coordinator, uid: None) -> None:
+        async def async_check_exist(obj) -> None:
             """Check entity exists."""
             entity_registry = er.async_get(hass)
-            if uid:
-                unique_id = (
-                    f"{obj._inst.lower()}-{obj.entity_description.key}-"
-                    f"{slugify(str(obj._data[obj.entity_description.data_reference]).lower())}"
-                )
-            else:
-                unique_id = f"{obj._inst.lower()}-{obj.entity_description.key}"
+            unique_id = obj.unique_id
 
             entity_id = entity_registry.async_get_entity_id(
                 platform.domain, DOMAIN, unique_id
             )
+
+            if entity_id is None:
+                _LOGGER.debug("Add entity %s", unique_id)
+                await platform.async_add_entities([obj])
+                return
+
             entity = entity_registry.async_get(entity_id)
             if entity is None or (
-                (entity_id not in platform.entities) and (entity.disabled is False)
+                entity_id not in platform.entities
+                and getattr(entity, "disabled_by", None) is None
             ):
                 _LOGGER.debug("Add entity %s", entity_id)
                 await platform.async_add_entities([obj])
 
         for entity_description in descriptions:
-            data = coordinator.data[entity_description.data_path]
+            data = coordinator.data.get(entity_description.data_path)
+            if not data:
+                continue
+
             if not entity_description.data_reference:
                 if data.get(entity_description.data_attribute) is None:
                     continue
                 obj = dispatcher[entity_description.func](
                     coordinator, entity_description
                 )
-                await async_check_exist(obj, coordinator, None)
+                await async_check_exist(obj)
             else:
                 for uid in data:
                     obj = dispatcher[entity_description.func](
                         coordinator, entity_description, uid
                     )
-                    await async_check_exist(obj, coordinator, uid)
+                    await async_check_exist(obj)
 
     await async_update_controller(hass.data[DOMAIN][config_entry.entry_id])
 
@@ -112,24 +117,16 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         self._config_entry = self.coordinator.config_entry
         self._attr_extra_state_attributes = {ATTR_ATTRIBUTION: ATTRIBUTION}
         self._uid = uid
-        if self._uid:
-            self._data = coordinator.data[self.entity_description.data_path][self._uid]
-        else:
-            self._data = coordinator.data[self.entity_description.data_path]
+        self._refresh_data()
 
-        dev_group = self.entity_description.ha_group
-        if self.entity_description.ha_group.startswith("data__"):
-            dev_group = self.entity_description.ha_group[6:]
-            if dev_group in self._data:
-                dev_group = self._data[dev_group]
+    def _refresh_data(self) -> None:
+        """Refresh cached data from the coordinator for this entity."""
+        data = self.coordinator.data.get(self.entity_description.data_path, {})
+        self._data = data.get(self._uid, {}) if self._uid else data
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        self._data = self.coordinator.data[self.entity_description.data_path]
-        if self._uid:
-            self._data = self.coordinator.data[self.entity_description.data_path][
-                self._uid
-            ]
+        self._refresh_data()
         super()._handle_coordinator_update()
 
     @property
@@ -180,25 +177,27 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         if self.entity_description.ha_connection_value:
             dev_connection_value = self.entity_description.ha_connection_value
             if dev_connection_value.startswith("data__"):
-                dev_connection_value = f"{self._inst}_{dev_connection_value[6:]}"
-                dev_connection_value = (
-                    f"{self._inst}_{self._data[dev_connection_value]}"
-                )
+                data_key = dev_connection_value[6:]
+                connection_val = self._data.get(data_key, "unknown")
+                dev_connection_value = f"{self._inst}_{connection_val}"
+
+        api_scheme = getattr(self.coordinator.api, "_scheme", "ws")
+        http_scheme = "https" if api_scheme == "wss" else "http"
 
         if self.entity_description.ha_group == "System":
             return DeviceInfo(
                 connections={(dev_connection, f"{dev_connection_value}")},
                 identifiers={(dev_connection, f"{dev_connection_value}")},
-                name=dev_group,
+                name=self._inst,
                 model=f"{self.coordinator.data['system_info']['system_product']}",
                 manufacturer=f"{self.coordinator.data['system_info']['system_manufacturer']}",
                 sw_version=f"{self.coordinator.data['system_info']['version']}",
-                configuration_url=f"http://{self.coordinator.config_entry.data[CONF_HOST]}",
+                configuration_url=f"{http_scheme}://{self.coordinator.config_entry.data[CONF_HOST]}",
             )
         else:
             return DeviceInfo(
                 connections={(dev_connection, f"{dev_connection_value}")},
-                default_name=dev_group,
+                default_name=f"{self._inst} {dev_group}",
                 default_model=f"{self.coordinator.data['system_info']['system_product']}",
                 default_manufacturer=f"{self.coordinator.data['system_info']['system_manufacturer']}",
                 via_device=(
@@ -210,7 +209,7 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
     @property
     def extra_state_attributes(self) -> Mapping[str, Any]:
         """Return the state attributes."""
-        attributes = super().extra_state_attributes
+        attributes = dict(super().extra_state_attributes or {})
         for variable in self.entity_description.data_attributes_list:
             if variable in self._data:
                 attributes[format_attribute(variable)] = self._data[variable]

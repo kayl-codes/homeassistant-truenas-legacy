@@ -8,9 +8,11 @@ from logging import getLogger
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
+from homeassistant.util.dt import utc_from_timestamp
 
 from .coordinator import TrueNASCoordinator
 from .entity import TrueNASEntity, async_add_entities
@@ -34,7 +36,7 @@ async def async_setup_entry(
     dispatcher = {
         "TrueNASSensor": TrueNASSensor,
         "TrueNASUptimeSensor": TrueNASUptimeSensor,
-        "TrueNASClousyncSensor": TrueNASClousyncSensor,
+        "TrueNASCloudsyncSensor": TrueNASCloudsyncSensor,
         "TrueNASDatasetSensor": TrueNASDatasetSensor,
     }
     await async_add_entities(hass, config_entry, dispatcher)
@@ -56,6 +58,18 @@ class TrueNASSensor(TrueNASEntity, SensorEntity):
         self._attr_suggested_unit_of_measurement = (
             self.entity_description.suggested_unit_of_measurement
         )
+
+        if self._attr_suggested_unit_of_measurement in (
+            UnitOfInformation.GIGABYTES,
+            UnitOfInformation.GIBIBYTES,
+        ):
+            data_unit = self.coordinator.config_entry.options.get(
+                "data_unit", self.coordinator.config_entry.data.get("data_unit", "GB")
+            )
+            if data_unit == "GiB":
+                self._attr_suggested_unit_of_measurement = UnitOfInformation.GIBIBYTES
+            else:
+                self._attr_suggested_unit_of_measurement = UnitOfInformation.GIGABYTES
 
     @property
     def native_value(self) -> StateType | date | datetime | Decimal:
@@ -81,6 +95,14 @@ class TrueNASSensor(TrueNASEntity, SensorEntity):
 # ---------------------------
 class TrueNASUptimeSensor(TrueNASSensor):
     """Define an TrueNAS Uptime sensor."""
+
+    @property
+    def native_value(self) -> StateType | date | datetime | Decimal:
+        """Return the value reported by the sensor."""
+        val = self._data.get(self.entity_description.data_attribute)
+        if isinstance(val, (int, float)) and val > 0:
+            return utc_from_timestamp(val)
+        return None
 
     async def restart(self) -> None:
         """Restart TrueNAS systen."""
@@ -123,9 +145,9 @@ class TrueNASDatasetSensor(TrueNASSensor):
 
 
 # ---------------------------
-#   TrueNASClousyncSensor
+#   TrueNASCloudsyncSensor
 # ---------------------------
-class TrueNASClousyncSensor(TrueNASSensor):
+class TrueNASCloudsyncSensor(TrueNASSensor):
     """Define an TrueNAS Cloudsync sensor."""
 
     async def start(self) -> None:
@@ -139,7 +161,7 @@ class TrueNASClousyncSensor(TrueNASSensor):
 
         if not isinstance(tmp_job, dict) or "job" not in tmp_job:
             _LOGGER.error(
-                "Clousync job %s (%s) invalid",
+                "Cloudsync job %s (%s) invalid",
                 self._data["description"],
                 self._data["id"],
             )
@@ -148,7 +170,7 @@ class TrueNASClousyncSensor(TrueNASSensor):
         state = job_state.get("state") if isinstance(job_state, dict) else None
         if state in ["WAITING", "RUNNING"]:
             _LOGGER.warning(
-                "Clousync job %s (%s) is already running",
+                "Cloudsync job %s (%s) is already running",
                 self._data["description"],
                 self._data["id"],
             )
@@ -171,7 +193,7 @@ class TrueNASClousyncSensor(TrueNASSensor):
 
         if not isinstance(tmp_job, dict) or "job" not in tmp_job:
             _LOGGER.error(
-                "Clousync job %s (%s) invalid",
+                "Cloudsync job %s (%s) invalid",
                 self._data["description"],
                 self._data["id"],
             )
@@ -180,7 +202,7 @@ class TrueNASClousyncSensor(TrueNASSensor):
         state = job_state.get("state") if isinstance(job_state, dict) else None
         if state not in ["WAITING", "RUNNING"]:
             _LOGGER.warning(
-                "Clousync job %s (%s) is not running",
+                "Cloudsync job %s (%s) is not running",
                 self._data["description"],
                 self._data["id"],
             )
