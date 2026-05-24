@@ -15,5 +15,4 @@ def format_attribute(attr: str) -> str:
     attr = attr.replace("Vcpu ", "vCPU ")
     attr = attr.replace("Vmware ", "VMware ")
     attr = attr.replace("Ip4 ", "IP4 ")
-    attr = attr.replace("Ip6 ", "IP6 ")
-    return attr
+    return attr.replace("Ip6 ", "IP6 ")

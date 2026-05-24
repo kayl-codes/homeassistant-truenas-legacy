@@ -26,7 +26,7 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     _async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up device tracker for OpenMediaVault component."""
+    """Set up TrueNAS binary sensors."""
     dispatcher = {
         "TrueNASBinarySensor": TrueNASBinarySensor,
         "TrueNASVMBinarySensor": TrueNASVMBinarySensor,
@@ -133,9 +133,7 @@ class TrueNASServiceBinarySensor(TrueNASBinarySensor):
             "service.query",
             [[["id", "=", self._data["id"]]]],
         )
-        if isinstance(services, list) and services:
-            return services[0]
-        return None
+        return services[0] if isinstance(services, list) and services else None
 
     async def start(self):
         """Start a Service."""

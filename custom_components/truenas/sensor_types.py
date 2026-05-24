@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, NamedTuple
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -30,16 +31,16 @@ from .const import (
     SERVICE_SYSTEM_SHUTDOWN,
 )
 
-DEVICE_ATTRIBUTES_NETWORK = [
+DEVICE_ATTRIBUTES_NETWORK = (
     "description",
     "mtu",
     "link_state",
     "active_media_type",
     "active_media_subtype",
     "link_address",
-]
+)
 
-DEVICE_ATTRIBUTES_POOL = [
+DEVICE_ATTRIBUTES_POOL = (
     "path",
     "status",
     "healthy",
@@ -49,11 +50,10 @@ DEVICE_ATTRIBUTES_POOL = [
     "scrub_start",
     "scrub_end",
     "scrub_secs_left",
-    "healthy",
     "usage",
-]
+)
 
-DEVICE_ATTRIBUTES_DATASET = [
+DEVICE_ATTRIBUTES_DATASET = (
     "type",
     "pool",
     "mountpoint",
@@ -72,9 +72,9 @@ DEVICE_ATTRIBUTES_DATASET = [
     "encryption_algorithm",
     "used",
     "available",
-]
+)
 
-DEVICE_ATTRIBUTES_DISK = [
+DEVICE_ATTRIBUTES_DISK = (
     "serial",
     "size",
     "hddstandby",
@@ -89,26 +89,26 @@ DEVICE_ATTRIBUTES_DISK = [
     "devname",
     "zfs_guid",
     "identifier",
-]
+)
 
-DEVICE_ATTRIBUTES_CPU = [
+DEVICE_ATTRIBUTES_CPU = (
     "cpu_softirq",
     "cpu_system",
     "cpu_user",
     "cpu_nice",
     "cpu_iowait",
     "cpu_idle",
-]
+)
 
-DEVICE_ATTRIBUTES_MEMORY = [
+DEVICE_ATTRIBUTES_MEMORY = (
     "memory-used_value",
     "memory-free_value",
     "memory-cached_value",
     "memory-buffered_value",
     "memory-total_value",
-]
+)
 
-DEVICE_ATTRIBUTES_CLOUDSYNC = [
+DEVICE_ATTRIBUTES_CLOUDSYNC = (
     "direction",
     "path",
     "enabled",
@@ -118,9 +118,9 @@ DEVICE_ATTRIBUTES_CLOUDSYNC = [
     "time_finished",
     "job_percent",
     "job_description",
-]
+)
 
-DEVICE_ATTRIBUTES_REPLICATION = [
+DEVICE_ATTRIBUTES_REPLICATION = (
     "source_datasets",
     "target_dataset",
     "recursive",
@@ -134,9 +134,9 @@ DEVICE_ATTRIBUTES_REPLICATION = [
     "time_finished",
     "job_percent",
     "job_description",
-]
+)
 
-DEVICE_ATTRIBUTES_SNAPSHOTTASK = [
+DEVICE_ATTRIBUTES_SNAPSHOTTASK = (
     "recursive",
     "lifetime_value",
     "lifetime_unit",
@@ -146,7 +146,14 @@ DEVICE_ATTRIBUTES_SNAPSHOTTASK = [
     "vmware_sync",
     "state",
     "datetime",
-]
+)
+
+DEVICE_ATTRIBUTES_ALERTS = (
+    "messages",
+    "critical",
+    "warning",
+    "info",
+)
 
 
 @dataclass
@@ -161,11 +168,42 @@ class TrueNASSensorEntityDescription(SensorEntityDescription):
     data_name: str | None = None
     data_uid: str | None = None
     data_reference: str | None = None
-    data_attributes_list: list = field(default_factory=lambda: [])
+    data_attributes_list: list[str] = field(default_factory=list)
     func: str = "TrueNASSensor"
 
 
 SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
+    TrueNASSensorEntityDescription(
+        key="alerts",
+        name="Alerts",
+        icon="mdi:alert",
+        native_unit_of_measurement=None,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        ha_group="System",
+        data_path="alerts",
+        data_attribute="count",
+        data_name="",
+        data_uid="",
+        data_reference="",
+        data_attributes_list=DEVICE_ATTRIBUTES_ALERTS,
+    ),
+    TrueNASSensorEntityDescription(
+        key="system_smb_connections",
+        name="SMB connections",
+        icon="mdi:folder-network",
+        native_unit_of_measurement=None,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        ha_group="System",
+        data_path="system_info",
+        data_attribute="smb_connections",
+        data_name="",
+        data_uid="",
+        data_reference="",
+    ),
     TrueNASSensorEntityDescription(
         key="system_uptime",
         name="Uptime",
@@ -363,7 +401,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
         data_uid="",
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_CLOUDSYNC,
-        func="TrueNASClousyncSensor",
+        func="TrueNASCloudsyncSensor",
     ),
     TrueNASSensorEntityDescription(
         key="replication",
@@ -435,10 +473,21 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     ),
 )
 
-SENSOR_SERVICES = [
-    [SERVICE_CLOUDSYNC_RUN, SCHEMA_SERVICE_CLOUDSYNC_RUN, "start"],
-    [SERVICE_CLOUDSYNC_ABORT, SCHEMA_SERVICE_CLOUDSYNC_ABORT, "stop"],
-    [SERVICE_DATASET_SNAPSHOT, SCHEMA_SERVICE_DATASET_SNAPSHOT, "snapshot"],
-    [SERVICE_SYSTEM_REBOOT, SCHEMA_SERVICE_SYSTEM_REBOOT, "restart"],
-    [SERVICE_SYSTEM_SHUTDOWN, SCHEMA_SERVICE_SYSTEM_SHUTDOWN, "stop"],
-]
+
+class SensorService(NamedTuple):
+    """Service definition."""
+
+    name: str
+    schema: Any
+    action: str
+
+
+SENSOR_SERVICES: tuple[SensorService, ...] = (
+    SensorService(SERVICE_CLOUDSYNC_RUN, SCHEMA_SERVICE_CLOUDSYNC_RUN, "start"),
+    SensorService(SERVICE_CLOUDSYNC_ABORT, SCHEMA_SERVICE_CLOUDSYNC_ABORT, "stop"),
+    SensorService(
+        SERVICE_DATASET_SNAPSHOT, SCHEMA_SERVICE_DATASET_SNAPSHOT, "snapshot"
+    ),
+    SensorService(SERVICE_SYSTEM_REBOOT, SCHEMA_SERVICE_SYSTEM_REBOOT, "restart"),
+    SensorService(SERVICE_SYSTEM_SHUTDOWN, SCHEMA_SERVICE_SYSTEM_SHUTDOWN, "stop"),
+)

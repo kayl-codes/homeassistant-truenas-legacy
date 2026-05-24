@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any, NamedTuple
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
@@ -27,7 +28,7 @@ from .const import (
     SERVICE_VM_STOP,
 )
 
-DEVICE_ATTRIBUTES_POOL = [
+DEVICE_ATTRIBUTES_POOL = (
     "path",
     "status",
     "healthy",
@@ -39,22 +40,22 @@ DEVICE_ATTRIBUTES_POOL = [
     "scrub_secs_left",
     "available",
     "total",
-]
+)
 
-DEVICE_ATTRIBUTES_VM = [
+DEVICE_ATTRIBUTES_VM = (
     "type",
     "cpu",
     "memory",
     "autostart",
     "image",
-]
+)
 
-DEVICE_ATTRIBUTES_SERVICE = [
+DEVICE_ATTRIBUTES_SERVICE = (
     "enable",
     "state",
-]
+)
 
-DEVICE_ATTRIBUTES_APP = [
+DEVICE_ATTRIBUTES_APP = (
     "name",
     "version",
     "latest_version",
@@ -63,7 +64,7 @@ DEVICE_ATTRIBUTES_APP = [
     "image_updates_available",
     "custom_app",
     "portal",
-]
+)
 
 
 @dataclass
@@ -80,11 +81,11 @@ class TrueNASBinarySensorEntityDescription(BinarySensorEntityDescription):
     data_name: str | None = None
     data_uid: str | None = None
     data_reference: str | None = None
-    data_attributes_list: list = field(default_factory=lambda: [])
+    data_attributes_list: list[str] = field(default_factory=list)
     func: str = "TrueNASBinarySensor"
 
 
-SENSOR_TYPES: tuple[BinarySensorEntityDescription, ...] = (
+SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
     TrueNASBinarySensorEntityDescription(
         key="pool_healthy",
         name="healthy",
@@ -123,10 +124,11 @@ SENSOR_TYPES: tuple[BinarySensorEntityDescription, ...] = (
         icon_disabled="mdi:cog-off",
         device_class=None,
         entity_category=None,
+        entity_registry_enabled_default=False,
         ha_group="Services",
         data_path="service",
         data_is_on="running",
-        data_name="service",
+        data_name="display_name",
         data_uid="",
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_SERVICE,
@@ -150,13 +152,26 @@ SENSOR_TYPES: tuple[BinarySensorEntityDescription, ...] = (
     ),
 )
 
-SENSOR_SERVICES = [
-    [SERVICE_VM_START, SCHEMA_SERVICE_VM_START, "start"],
-    [SERVICE_VM_STOP, SCHEMA_SERVICE_VM_STOP, "stop"],
-    [SERVICE_SERVICE_START, SCHEMA_SERVICE_SERVICE_START, "start"],
-    [SERVICE_SERVICE_STOP, SCHEMA_SERVICE_SERVICE_STOP, "stop"],
-    [SERVICE_SERVICE_RESTART, SCHEMA_SERVICE_SERVICE_RESTART, "restart"],
-    [SERVICE_SERVICE_RELOAD, SCHEMA_SERVICE_SERVICE_RELOAD, "reload"],
-    [SERVICE_APP_START, SCHEMA_SERVICE_APP_START, "start"],
-    [SERVICE_APP_STOP, SCHEMA_SERVICE_APP_STOP, "stop"],
-]
+
+class BinarySensorService(NamedTuple):
+    """Service definition."""
+
+    name: str
+    schema: Any
+    action: str
+
+
+SENSOR_SERVICES: tuple[BinarySensorService, ...] = (
+    BinarySensorService(SERVICE_VM_START, SCHEMA_SERVICE_VM_START, "start"),
+    BinarySensorService(SERVICE_VM_STOP, SCHEMA_SERVICE_VM_STOP, "stop"),
+    BinarySensorService(SERVICE_SERVICE_START, SCHEMA_SERVICE_SERVICE_START, "start"),
+    BinarySensorService(SERVICE_SERVICE_STOP, SCHEMA_SERVICE_SERVICE_STOP, "stop"),
+    BinarySensorService(
+        SERVICE_SERVICE_RESTART, SCHEMA_SERVICE_SERVICE_RESTART, "restart"
+    ),
+    BinarySensorService(
+        SERVICE_SERVICE_RELOAD, SCHEMA_SERVICE_SERVICE_RELOAD, "reload"
+    ),
+    BinarySensorService(SERVICE_APP_START, SCHEMA_SERVICE_APP_START, "start"),
+    BinarySensorService(SERVICE_APP_STOP, SCHEMA_SERVICE_APP_STOP, "stop"),
+)
