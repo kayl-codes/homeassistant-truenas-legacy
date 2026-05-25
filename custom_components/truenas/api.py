@@ -1,5 +1,6 @@
 """TrueNAS API."""
 
+import errno
 import json
 import re
 import socket
@@ -22,7 +23,6 @@ from .const import (
     ERR_CONNECTION_REFUSED,
     ERR_HANDSHAKE_TIMEOUT,
     ERR_HTTP_USED,
-    ERR_INVALID_HOSTNAME,
     ERR_INVALID_KEY,
     ERR_LOST_LOGIN,
     ERR_LOST_QUERY,
@@ -47,7 +47,6 @@ class TrueNASAPI:
     def __init__(
         self,
         host: str,
-        username: str,
         api_key: str,
         verify_ssl: bool = True,
         scheme: str = "wss",
@@ -59,7 +58,6 @@ class TrueNASAPI:
                 f"Invalid WebSocket scheme '{scheme}'. Expected 'ws' or 'wss'."
             )
         self._host = host
-        self._username = username
         self._api_key = api_key
         self._scheme = scheme
         self._url = f"{self._scheme}://{self._host}/websocket"
@@ -92,7 +90,9 @@ class TrueNASAPI:
         self._io_lock = RLock()
         self._connected = False
         self._error = ""
+        self._closed = False
         self._error_logged = False
+        self._binary_warning_logged = False
         self._next_rpc_id = 1
         self._ws: ClientConnection | None = None
 
@@ -124,6 +124,18 @@ class TrueNASAPI:
         if isinstance(exception, TimeoutError):
             return ERR_HANDSHAKE_TIMEOUT
 
+        # Structured / errno-based handling where available
+        if (
+            isinstance(exception, OSError)
+            and getattr(exception, "errno", None) is not None
+        ):
+            if exception.errno == errno.ECONNREFUSED:
+                return ERR_CONNECTION_REFUSED
+            if exception.errno == errno.ETIMEDOUT:
+                return ERR_HANDSHAKE_TIMEOUT
+            if exception.errno == getattr(errno, "EHOSTUNREACH", None):
+                return ERR_CONNECTION_REFUSED
+
         status = self._extract_status_code(exception)
         if status in (401, 403):
             return ERR_INVALID_KEY
@@ -144,7 +156,7 @@ class TrueNASAPI:
         if "connection refused" in normalized:
             return ERR_CONNECTION_REFUSED
         if "no route to host" in normalized:
-            return ERR_INVALID_HOSTNAME
+            return ERR_CONNECTION_REFUSED
         if "timed out while waiting for handshake response" in normalized:
             return ERR_HANDSHAKE_TIMEOUT
 
@@ -323,6 +335,15 @@ class TrueNASAPI:
             if str(candidate.get(match_key)) == match_val:
                 return candidate
 
+            _LOGGER.debug(
+                "TrueNAS %s: received unrelated WebSocket message "
+                "while waiting for %s=%r: %s",
+                self._host,
+                match_key,
+                match_val,
+                candidate,
+            )
+
     def _log_login_failure(self, result: dict) -> None:
         """Extract and log login failure details."""
         error_reason = result.get("reason")
@@ -425,16 +446,9 @@ class TrueNASAPI:
 
             payload = {
                 "msg": "method",
-                "method": "auth.login_ex",
+                "method": "auth.login_with_api_key",
                 "id": str(rpc_id),
-                "params": [
-                    {
-                        "mechanism": "API_KEY_PLAIN",
-                        "username": self._username,
-                        "api_key": self._api_key,
-                        "login_options": {"user_info": False},
-                    }
-                ],
+                "params": [self._api_key],
             }
 
             try:
@@ -487,6 +501,8 @@ class TrueNASAPI:
         with self._lock:
             if self._connected:
                 return True
+            if self._closed:
+                return False
             self._error = ""
             self._error_logged = False
 
@@ -496,7 +512,7 @@ class TrueNASAPI:
             kwargs = {
                 "max_size": 16777216,
                 "ping_interval": 20,
-                "open_timeout": 60,
+                "open_timeout": 10,
             }
             if self._scheme == "wss":
                 kwargs["ssl"] = self._ssl_context
@@ -541,6 +557,15 @@ class TrueNASAPI:
                 _LOGGER.debug("Error while closing WebSocket connection: %s", exc)
 
     # ---------------------------
+    #   close
+    # ---------------------------
+    def close(self) -> None:
+        """Permanently close the API and prevent reconnection."""
+        with self._lock:
+            self._closed = True
+        self.disconnect()
+
+    # ---------------------------
     #   reconnect
     # ---------------------------
     def reconnect(self) -> bool:
@@ -574,6 +599,7 @@ class TrueNASAPI:
                 return self._connected, self._error
 
         if result is None:
+            self.disconnect()
             with self._lock:
                 self._connected = False
                 if not self._error:
@@ -725,3 +751,8 @@ class TrueNASAPI:
         """Return error."""
         with self._lock:
             return self._error
+
+    @property
+    def scheme(self) -> str:
+        """Return the scheme used for the WebSocket."""
+        return self._scheme

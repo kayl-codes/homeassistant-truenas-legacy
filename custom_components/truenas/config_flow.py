@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import socket
 from collections.abc import Mapping
@@ -19,7 +18,6 @@ from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
     CONF_NAME,
-    CONF_USERNAME,
     CONF_VERIFY_SSL,
 )
 from homeassistant.core import callback
@@ -34,7 +32,6 @@ from .const import (
     DEFAULT_DEVICE_NAME,
     DEFAULT_HOST,
     DEFAULT_SSL_VERIFY,
-    DEFAULT_USERNAME,
     DOMAIN,
     ERR_API_NOT_FOUND,
     ERR_CERT_VERIFY_FAILED,
@@ -62,10 +59,6 @@ def _base_schema(truenas_config: Mapping[str, Any]) -> vol.Schema:
         vol.Required(
             CONF_HOST, default=truenas_config.get(CONF_HOST, DEFAULT_HOST)
         ): str,
-        vol.Required(
-            CONF_USERNAME,
-            default=truenas_config.get(CONF_USERNAME, DEFAULT_USERNAME),
-        ): str,
         vol.Required(CONF_API_KEY, default=truenas_config.get(CONF_API_KEY, "")): str,
         vol.Required(
             CONF_VERIFY_SSL,
@@ -91,10 +84,6 @@ def _reconfigure_schema(truenas_config: Mapping[str, Any]) -> vol.Schema:
     base_schema = {
         vol.Required(
             CONF_HOST, default=truenas_config.get(CONF_HOST, DEFAULT_HOST)
-        ): str,
-        vol.Required(
-            CONF_USERNAME,
-            default=truenas_config.get(CONF_USERNAME, DEFAULT_USERNAME),
         ): str,
         vol.Optional(CONF_API_KEY): str,
         vol.Required(
@@ -138,63 +127,6 @@ def _map_error_to_ha(errorcode: str) -> str:
 
 
 # ---------------------------
-#   _async_check_port
-# ---------------------------
-async def _async_check_port(host: str, verify_ssl: bool) -> tuple[bool, int]:
-    """Perform a quick TCP connection test."""
-    h = host
-    p: int | None = None
-
-    if host.startswith("["):
-        if "]:" in host:
-            addr, p_str = host.rsplit("]:", 1)
-            h = addr[1:] if addr.startswith("[") else addr
-        else:
-            h = host[1:-1] if host.endswith("]") else host
-            p_str = None
-
-        if p_str:
-            try:
-                p = int(p_str)
-            except ValueError:
-                _LOGGER.warning(
-                    "Invalid port '%s' provided in host '%s', "
-                    "falling back to default port",
-                    p_str,
-                    host,
-                )
-                p = None
-
-    elif host.count(":") == 1:
-        h, p_str = host.rsplit(":", 1)
-        try:
-            p = int(p_str)
-        except ValueError:
-            _LOGGER.warning(
-                "Invalid port '%s' provided in host '%s', falling back to default port",
-                p_str,
-                host,
-            )
-            p = None
-
-    if p is None:
-        p = 443 if verify_ssl else 80
-
-    try:
-        _, writer = await asyncio.wait_for(asyncio.open_connection(h, p), timeout=3.0)
-        writer.close()
-        with contextlib.suppress(Exception):
-            await writer.wait_closed()
-        return True, p
-    except TimeoutError:
-        _LOGGER.debug("TrueNAS TCP port connection to %s:%s timed out", h, p)
-        return False, p
-    except OSError as e:
-        _LOGGER.debug("TrueNAS TCP port connection to %s:%s failed: %s", h, p, e)
-        return False, p
-
-
-# ---------------------------
 #   configured_instances
 # ---------------------------
 @callback
@@ -224,7 +156,6 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle a flow initialized by the user."""
         truenas_config = self.truenas_config
         errors = {}
-        description_placeholders = {}
 
         if user_input is None and not truenas_config.get(CONF_HOST):
 
@@ -247,26 +178,11 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
             if truenas_config[CONF_NAME] in configured_instances(self.hass):
                 errors["base"] = "name_exists"
 
-            # Test TCP Port
-            port_ok, port = await _async_check_port(
-                truenas_config[CONF_HOST],
-                truenas_config[CONF_VERIFY_SSL],
-            )
-
-            if not port_ok:
-                errors[CONF_HOST] = "cannot_connect"
-                description_placeholders["port"] = str(port)
-                _LOGGER.error(
-                    "TrueNAS TCP port %s connection failed for %s",
-                    port,
-                    truenas_config[CONF_HOST],
-                )
-            else:
+            if not errors:
                 # Test API connection
                 api = await self.hass.async_add_executor_job(
                     TrueNASAPI,
                     truenas_config[CONF_HOST],
-                    truenas_config[CONF_USERNAME],
                     truenas_config[CONF_API_KEY],
                     truenas_config[CONF_VERIFY_SSL],
                 )
@@ -274,6 +190,8 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
                 conn, errorcode = await self.hass.async_add_executor_job(
                     api.connection_test
                 )
+
+                await self.hass.async_add_executor_job(api.disconnect)
 
                 if not conn:
                     ha_error = _map_error_to_ha(errorcode)
@@ -294,7 +212,6 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=_base_schema(truenas_config),
             errors=errors,
-            description_placeholders=description_placeholders or None,
         )
 
     async def async_step_reconfigure(
@@ -307,7 +224,6 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
         truenas_config = self.truenas_config
         reconfigure_entry = self._get_reconfigure_entry()
         errors = {}
-        description_placeholders = {}
 
         if user_input is not None:
             # Do not overwrite existing API key if the field is left blank
@@ -316,26 +232,23 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
 
             truenas_config.update(user_input)
 
-            # Test TCP Port
-            port_ok, port = await _async_check_port(
-                truenas_config[CONF_HOST],
-                truenas_config[CONF_VERIFY_SSL],
+            # Only test the connection when settings that actually affect
+            # the WebSocket transport have changed. Non-connection settings
+            # (e.g. data_unit, cronjob_skip_disabled) must not trigger a new
+            # connection attempt because TrueNAS may refuse it while the
+            # coordinator already holds active connections, causing a spurious
+            # handshake_timeout error.
+            _CONNECTION_KEYS = {CONF_HOST, CONF_API_KEY, CONF_VERIFY_SSL}
+            connection_changed = any(
+                truenas_config.get(k) != reconfigure_entry.data.get(k)
+                for k in _CONNECTION_KEYS
             )
 
-            if not port_ok:
-                errors[CONF_HOST] = "cannot_connect"
-                description_placeholders["port"] = str(port)
-                _LOGGER.error(
-                    "TrueNAS TCP port %s connection failed for %s",
-                    port,
-                    truenas_config[CONF_HOST],
-                )
-            else:
+            if connection_changed:
                 # Test API connection
                 api = await self.hass.async_add_executor_job(
                     TrueNASAPI,
                     truenas_config[CONF_HOST],
-                    truenas_config[CONF_USERNAME],
                     truenas_config[CONF_API_KEY],
                     truenas_config[CONF_VERIFY_SSL],
                 )
@@ -343,6 +256,8 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
                 conn, errorcode = await self.hass.async_add_executor_job(
                     api.connection_test
                 )
+
+                await self.hass.async_add_executor_job(api.disconnect)
 
                 if not conn:
                     ha_error = _map_error_to_ha(errorcode)
@@ -365,5 +280,4 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=_reconfigure_schema(truenas_config),
             errors=errors,
-            description_placeholders=description_placeholders or None,
         )

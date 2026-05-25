@@ -28,6 +28,7 @@ Monitor and control your TrueNAS device from Home Assistant.
  * Control and Monitor Virtual Machines
  * Control and Monitor Jails (TrueNAS CORE only)
  * Control and Monitor Cloudsync
+ * Monitor Active Alerts and Diagnostics
  * Create a Dataset Snapshot
  * Update Sensor
  * Reboot and Shutdown TrueNAS system
@@ -90,8 +91,12 @@ Snapshot name will be automatically generated using datetime iso format with mic
 ## Services
 Control and monitor status and attributes for each TrueNAS service.
 Service control is available through actions.
+![Services](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service_1.png)
+![Services Control](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service_2.png)
 
-![Services](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service.png)
+## Diagnostics
+Monitor overall system health and active alerts directly from the device page. The integration provides a dedicated diagnostic sensor that automatically detects any disk, pool, or SMART issues.
+![Diagnostics](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/diagnostics.png)
 
 ## Reboot and Shutdown
 Reboot or shut down a TrueNAS system.
@@ -100,10 +105,15 @@ Target system uptime sensor.
 
 ![image](https://user-images.githubusercontent.com/36953052/221521930-f8f789e6-deec-4cc2-b11e-740caa056e44.png)
 
-# Install integration
-This integration is distributed using [HACS](https://hacs.xyz/).
+# Install integration from Custom Repository
+1. Open HACS, click the 3-dot menu in the upper right corner and select **Custom repositories**.
+2. Add the following details:
+   * **Repository:** `https://github.com/kayl-codes/homeassistant-truenas.git`
+   * **Category:** Integration
+3. Click **Add** and download the integration.
+4. Restart Home Assistant (full restart, not quick reload).
+5. Navigate to **Settings -> Devices & services -> Add Integration** and search for **TrueNAS**.
 
-You can find it under "Integrations", named "TrueNAS"
 
 Minimum requirements:
 * TrueNAS 25.04
@@ -127,8 +137,9 @@ NOTES:
 
 ![Add Integration](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/setup_integration.png)
 * "Name of the integration" - Friendly name for this router
-* "Host" - Use hostname or IP
+* "Host" - Use hostname or IP and if you need port seperated by colon eG: 192.168.100.100:8888
 * "API key" - TrueNAS API key for Home Assistant 
+* "Data size unit" - Choose how storage sizes are displayed. You can select between **GB** (Gigabytes, base 1000) and **GiB** (Gibibytes, base 1024). This will automatically adjust all dataset, pool, and memory sensors.
 
 # Development
 

@@ -11,7 +11,13 @@ DEFAULT_NAME = "root"
 ATTRIBUTION = "Data provided by TrueNAS integration"
 
 DEFAULT_HOST = "192.168.1.100"
-DEFAULT_USERNAME = "admin"
+
+# Conversion factor: kilobits per second to kibibytes per second
+# (1000 / 8192 = ~0.12207)
+KILOBITS_TO_KIBIBYTES_FACTOR = 0.12207
+
+# Tolerance in seconds to prevent Uptime sensor fluctuations
+UPTIME_EPOCH_TOLERANCE_SECONDS = 300
 
 # Default per-query timeout in seconds
 QUERY_TIMEOUT: float = 30.0
@@ -53,7 +59,6 @@ DEFAULT_DATA_UNIT = "GiB"
 ALLOWED_DATA_UNITS = ["GB", "GiB"]
 
 TO_REDACT = {
-    "username",
     "password",
     "encryption_password",
     "encryption_salt",
@@ -96,7 +101,9 @@ SCHEMA_SERVICE_SERVICE_RELOAD = {}
 
 SERVICE_VM_START = "vm_start"
 SERVICE_VM_START_OVERCOMMIT = "overcommit"
-SCHEMA_SERVICE_VM_START = {vol.Optional(SERVICE_VM_START_OVERCOMMIT): cv.boolean}
+SCHEMA_SERVICE_VM_START = {
+    vol.Optional(SERVICE_VM_START_OVERCOMMIT, default=False): cv.boolean
+}
 SERVICE_VM_STOP = "vm_stop"
 SCHEMA_SERVICE_VM_STOP = {}
 

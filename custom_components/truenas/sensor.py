@@ -14,6 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
 
+from .const import CONF_DATA_UNIT, DEFAULT_DATA_UNIT
 from .coordinator import TrueNASCoordinator
 from .entity import TrueNASEntity, async_add_entities
 from .sensor_types import (  # noqa: F401
@@ -64,7 +65,10 @@ class TrueNASSensor(TrueNASEntity, SensorEntity):
             UnitOfInformation.GIBIBYTES,
         ):
             data_unit = self.coordinator.config_entry.options.get(
-                "data_unit", self.coordinator.config_entry.data.get("data_unit", "GB")
+                CONF_DATA_UNIT,
+                self.coordinator.config_entry.data.get(
+                    CONF_DATA_UNIT, DEFAULT_DATA_UNIT
+                ),
             )
             if data_unit == "GiB":
                 self._attr_suggested_unit_of_measurement = UnitOfInformation.GIBIBYTES
