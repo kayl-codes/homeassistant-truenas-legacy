@@ -1,5 +1,6 @@
 """TrueNAS API."""
 
+import errno
 import json
 import re
 import socket
@@ -22,7 +23,6 @@ from .const import (
     ERR_CONNECTION_REFUSED,
     ERR_HANDSHAKE_TIMEOUT,
     ERR_HTTP_USED,
-    ERR_INVALID_HOSTNAME,
     ERR_INVALID_KEY,
     ERR_LOST_LOGIN,
     ERR_LOST_QUERY,
@@ -124,6 +124,18 @@ class TrueNASAPI:
         if isinstance(exception, TimeoutError):
             return ERR_HANDSHAKE_TIMEOUT
 
+        # Structured / errno-based handling where available
+        if (
+            isinstance(exception, OSError)
+            and getattr(exception, "errno", None) is not None
+        ):
+            if exception.errno == errno.ECONNREFUSED:
+                return ERR_CONNECTION_REFUSED
+            if exception.errno == errno.ETIMEDOUT:
+                return ERR_HANDSHAKE_TIMEOUT
+            if exception.errno == getattr(errno, "EHOSTUNREACH", None):
+                return ERR_CONNECTION_REFUSED
+
         status = self._extract_status_code(exception)
         if status in (401, 403):
             return ERR_INVALID_KEY
@@ -144,7 +156,7 @@ class TrueNASAPI:
         if "connection refused" in normalized:
             return ERR_CONNECTION_REFUSED
         if "no route to host" in normalized:
-            return ERR_INVALID_HOSTNAME
+            return ERR_CONNECTION_REFUSED
         if "timed out while waiting for handshake response" in normalized:
             return ERR_HANDSHAKE_TIMEOUT
 
@@ -322,6 +334,15 @@ class TrueNASAPI:
 
             if str(candidate.get(match_key)) == match_val:
                 return candidate
+
+            _LOGGER.debug(
+                "TrueNAS %s: received unrelated WebSocket message "
+                "while waiting for %s=%r: %s",
+                self._host,
+                match_key,
+                match_val,
+                candidate,
+            )
 
     def _log_login_failure(self, result: dict) -> None:
         """Extract and log login failure details."""
@@ -666,28 +687,12 @@ class TrueNASAPI:
                         self.disconnect()
                         return None
 
-                    if isinstance(message, bytes):
-                        try:
-                            message = message.decode("utf-8")
-                        except UnicodeDecodeError:
-                            if not self._binary_warning_logged:
-                                self._binary_warning_logged = True
-                                _LOGGER.warning(
-                                "Received non-UTF-8 binary WebSocket frame "
-                                "from %s; ignoring subsequent binary frames",
-                                    self._host,
-                                )
-                            continue
-
                     if not isinstance(message, str):
-                        if not self._binary_warning_logged:
-                            self._binary_warning_logged = True
-                            _LOGGER.warning(
-                            "Received non-text WebSocket frame of type %s "
-                            "from %s; ignoring subsequent non-text frames",
-                                type(message).__name__,
-                                self._host,
-                            )
+                        _LOGGER.debug(
+                            "TrueNAS %s: ignoring non-string WebSocket message: %r",
+                            self._host,
+                            message,
+                        )
                         continue
 
                     try:

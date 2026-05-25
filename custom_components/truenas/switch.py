@@ -44,7 +44,7 @@ class TrueNASServiceSwitch(TrueNASEntity, SwitchEntity):
     @property
     def is_on(self) -> bool:
         """Return true if device is on."""
-        return self._data[self.entity_description.data_is_on]
+        return self._data.get(self.entity_description.data_is_on, False)
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the entity on."""
@@ -74,7 +74,7 @@ class TrueNASCloudsyncSwitch(TrueNASEntity, SwitchEntity):
     @property
     def is_on(self) -> bool:
         """Return true if device is on."""
-        return self._data[self.entity_description.data_is_on]
+        return self._data.get(self.entity_description.data_is_on, False)
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the entity on."""
