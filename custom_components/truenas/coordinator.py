@@ -13,7 +13,6 @@ from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
     CONF_NAME,
-    CONF_USERNAME,
     CONF_VERIFY_SSL,
 )
 from homeassistant.core import HomeAssistant
@@ -21,13 +20,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import TrueNASAPI
 from .apiparser import parse_api
-from .const import DEFAULT_USERNAME, DOMAIN
+from .const import (
+    DOMAIN,
+    KILOBITS_TO_KIBIBYTES_FACTOR,
+    UPTIME_EPOCH_TOLERANCE_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-# Conversion factor: kilobits per second to kibibytes per second
-# (1000 / 8192 = ~0.12207)
-KILOBITS_TO_KIBIBYTES_FACTOR = 0.12207
 
 
 # ---------------------------
@@ -70,12 +69,12 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "critical": 0,
                 "warning": 0,
                 "info": 0,
+                "disk_issues": False,
             },
         }
 
         self.api = TrueNASAPI(
             config_entry.data[CONF_HOST],
-            config_entry.data.get(CONF_USERNAME, DEFAULT_USERNAME),
             config_entry.data[CONF_API_KEY],
             config_entry.data[CONF_VERIFY_SSL],
         )
@@ -87,8 +86,8 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_updatecheck_update = datetime(1970, 1, 1, tzinfo=UTC)
 
         self._is_virtual = False
-        self._version_major = 0
-        self._version_minor = 0
+        self._version_major: int = 0
+        self._version_minor: int = 0
 
     # ---------------------------
     #   connected
@@ -102,21 +101,6 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     async def _async_update_data(self):
         """Update TrueNAS data."""
-        # Migrate legacy `cronjob_skip_disabled` stored in data to options
-        if (
-            "cronjob_skip_disabled" in self.config_entry.data
-            and "cronjob_skip_disabled" not in self.config_entry.options
-        ):
-            new_options = {
-                **self.config_entry.options,
-                "cronjob_skip_disabled": self.config_entry.data[
-                    "cronjob_skip_disabled"
-                ],
-            }
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                options=new_options,
-            )
 
         if not self.api.connected():
             try:
@@ -190,21 +174,13 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ],
             ensure_vals=[
                 {"name": "uptimeEpoch", "default": 0},
-                {"name": "cpu_temperature", "default": 0.0},
+                {"name": "cpu_temperature", "default": None},
                 {"name": "load_shortterm", "default": 0.0},
                 {"name": "load_midterm", "default": 0.0},
                 {"name": "load_longterm", "default": 0.0},
-                {"name": "cpu_interrupt", "default": 0.0},
-                {"name": "cpu_system", "default": 0.0},
-                {"name": "cpu_user", "default": 0.0},
-                {"name": "cpu_nice", "default": 0.0},
-                {"name": "cpu_idle", "default": 0.0},
                 {"name": "cpu_usage", "default": 0.0},
                 {"name": "cache_size-arc_value", "default": 0.0},
-                {"name": "memory-used_value", "default": 0.0},
                 {"name": "memory-free_value", "default": 0.0},
-                {"name": "memory-cached_value", "default": 0.0},
-                {"name": "memory-buffered_value", "default": 0.0},
                 {"name": "memory-total_value", "default": 0.0},
                 {"name": "memory-usage_percent", "default": 0},
                 {"name": "update_available", "type": "bool", "default": False},
@@ -260,9 +236,6 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         version_str = str(self.ds["system_info"].get("version", "") or "")
         clean_version = version_str.replace("TrueNAS-", "").replace("SCALE-", "")
 
-        self._version_major = 0
-        self._version_minor = 0
-
         if match := re.search(r"(\d+)\.(\d+)", clean_version):
             self._version_major = int(match[1])
             self._version_minor = int(match[2])
@@ -286,9 +259,17 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.ds["system_info"]["uptime_seconds"] > 0:
             now = datetime.now(UTC).replace(microsecond=0)
             now_epoch = int(now.timestamp())
-            self.ds["system_info"]["uptimeEpoch"] = now_epoch - int(
-                self.ds["system_info"]["uptime_seconds"]
-            )
+            new_uptime_epoch = now_epoch - int(self.ds["system_info"]["uptime_seconds"])
+
+            old_uptime_epoch = self.ds["system_info"].get("uptimeEpoch", 0)
+            if (
+                old_uptime_epoch == 0
+                or abs(new_uptime_epoch - old_uptime_epoch)
+                > UPTIME_EPOCH_TOLERANCE_SECONDS
+            ):
+                self.ds["system_info"]["uptimeEpoch"] = new_uptime_epoch
+            else:
+                self.ds["system_info"]["uptimeEpoch"] = old_uptime_epoch
 
         # Network interface query
         self.ds["interface"] = parse_api(
@@ -347,12 +328,16 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # If API returns nothing, we already set defaults above, but we must clear
         # any potentially stale update metadata before returning.
-        if not update_data or not isinstance(update_data, dict):
+        if not isinstance(update_data, dict):
             _LOGGER.warning(
-                "TrueNAS update status returned malformed or empty data: %s",
+                "TrueNAS update status returned malformed data: %s",
                 update_data,
             )
             self._reset_update_status(status="IDLE")
+            return
+
+        if not update_data:
+            self._reset_update_status()
             return
 
         # According to your PS-test, the data is in: result -> status -> new_version
@@ -413,6 +398,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.ds["interface"]:
             graph_names.append("interface")
 
+        # TODO: Consider making this a config option. Many hypervisors do not
+        # pass through CPU temperatures, causing API errors. However, some do,
+        # so users might want to explicitly enable 'cputemp' polling even for VMs.
         if self._is_virtual and "cputemp" in graph_names:
             graph_names.remove("cputemp")
 
@@ -488,7 +476,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mean_vals = item.get("aggregations", {}).get("mean", {})
             valid_means = [v for v in mean_vals.values() if isinstance(v, (int, float))]
             self.ds["system_info"]["cpu_temperature"] = (
-                round(max(valid_means), 2) if valid_means else 0.0
+                round(max(valid_means), 2) if valid_means else None
             )
 
         # CPU load
@@ -535,23 +523,32 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _process_system_stat_interface(self, item: dict, tmp_etc: str) -> None:
         """Process interface system statistics."""
-        item["legend"] = [tmp.replace("received", "rx") for tmp in item["legend"]]
-        item["legend"] = [tmp.replace("sent", "tx") for tmp in item["legend"]]
-        item["aggregations"]["mean"] = {
-            k.replace("received", "rx"): v
-            for k, v in item["aggregations"]["mean"].items()
-        }
-        item["aggregations"]["mean"] = {
-            k.replace("sent", "tx"): v for k, v in item["aggregations"]["mean"].items()
-        }
-
         tmp_arr = ("rx", "tx")
-        if "aggregations" in item:
+        legend = item.get("legend")
+        if not isinstance(legend, list):
+            for tmp_load in tmp_arr:
+                self.ds["interface"][tmp_etc][tmp_load] = 0.0
+            return
+
+        item["legend"] = [
+            tmp.replace("received", "rx").replace("sent", "tx")
+            for tmp in legend
+            if isinstance(tmp, str)
+        ]
+
+        aggregations = item.get("aggregations")
+        if isinstance(aggregations, dict) and isinstance(
+            aggregations.get("mean"), dict
+        ):
+            aggregations["mean"] = {
+                k.replace("received", "rx").replace("sent", "tx"): v
+                for k, v in aggregations["mean"].items()
+                if isinstance(k, str)
+            }
+
             for tmp_var in item["legend"]:
                 if tmp_var in tmp_arr:
-                    tmp_val = (
-                        item.get("aggregations", {}).get("mean", {}).get(tmp_var) or 0.0
-                    )
+                    tmp_val = aggregations["mean"].get(tmp_var) or 0.0
                     self.ds["interface"][tmp_etc][tmp_var] = round(
                         (tmp_val * KILOBITS_TO_KIBIBYTES_FACTOR), 2
                     )
@@ -609,8 +606,6 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "openvpn_server": "OpenVPN Server",
             "rsync": "Rsync",
             "s3": "S3",
-            "smart": "SMART",
-            "smartd": "SMART",
             "snmp": "SNMP",
             "ssh": "SSH",
             "tftp": "TFTP",
@@ -876,7 +871,6 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "hddstandby_force", "type": "bool", "default": False},
                 {"name": "advpowermgmt", "default": "unknown"},
                 {"name": "acousticlevel", "default": "unknown"},
-                {"name": "togglesmart", "type": "bool", "default": False},
                 {"name": "model", "default": "unknown"},
                 {"name": "rotationrate", "default": "unknown"},
                 {"name": "type", "default": "unknown"},
@@ -929,8 +923,16 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         if isinstance(temps, dict) and "error" not in temps:
-            for uid in missing_disks:
-                self._map_single_disk_api_temp(uid, temps)
+            # Validate structure: all values should be numeric temps or None
+            if all(v is None or isinstance(v, (int, float)) for v in temps.values()):
+                for uid in missing_disks:
+                    self._map_single_disk_api_temp(uid, temps)
+            else:
+                _LOGGER.warning(
+                    "Unexpected payload structure from API 'disk.temperatures', "
+                    "expected mapping of numeric temperatures: %s",
+                    temps,
+                )
         elif not has_netdata:
             _LOGGER.warning(
                 "Failed to update disk temperatures from API 'disk.temperatures': %s",
@@ -1062,9 +1064,25 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         alerts = self.api.query("alert.list")
         if not isinstance(alerts, list):
             _LOGGER.warning("Unexpected response from alert.list: %r", alerts)
+            self.ds["alerts"] = {
+                "count": 0,
+                "messages": [],
+                "critical": 0,
+                "warning": 0,
+                "info": 0,
+                "disk_issues": False,
+            }
             return
 
         active_alerts = [alert for alert in alerts if not alert.get("dismissed", False)]
+
+        disk_issues = False
+        for alert in active_alerts:
+            klass = str(alert.get("klass", "")).lower()
+            title = str(alert.get("title", "")).lower()
+            if "disk" in klass or "pool" in klass or "smart" in title:
+                disk_issues = True
+                break
 
         self.ds["alerts"] = {
             "count": len(active_alerts),
@@ -1074,6 +1092,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "critical": sum(a.get("level") == "CRITICAL" for a in active_alerts),
             "warning": sum(a.get("level") == "WARNING" for a in active_alerts),
             "info": sum(a.get("level") == "INFO" for a in active_alerts),
+            "disk_issues": disk_issues,
         }
 
     # ---------------------------
@@ -1268,7 +1287,10 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ],
         )
 
-        skip_disabled = self.config_entry.options.get("cronjob_skip_disabled", False)
+        skip_disabled = self.config_entry.options.get(
+            "cronjob_skip_disabled",
+            self.config_entry.data.get("cronjob_skip_disabled", True),
+        )
 
         for uid, vals in list(self.ds["cronjob"].items()):
             if skip_disabled and not vals.get("enabled", True):

@@ -32,10 +32,22 @@ SENSOR_TYPES: tuple[TrueNASSwitchEntityDescription, ...] = (
         data_path="service",
         data_is_on="running",
         data_name="display_name",
-        data_uid="",
+        data_uid=None,
         data_reference="id",
         data_attributes_list=["enable", "state"],
         func="TrueNASServiceSwitch",
+    ),
+    TrueNASSwitchEntityDescription(
+        key="cloudsync_switch",
+        name="Enabled",
+        icon="mdi:calendar-check",
+        ha_group="Cloudsync",
+        data_path="cloudsync",
+        data_is_on="enabled",
+        data_name="description",
+        data_uid=None,
+        data_reference="id",
+        func="TrueNASCloudsyncSwitch",
     ),
 )
 

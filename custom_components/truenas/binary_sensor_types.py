@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
     BinarySensorEntityDescription,
 )
+from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
     SCHEMA_SERVICE_APP_START,
@@ -87,6 +89,18 @@ class TrueNASBinarySensorEntityDescription(BinarySensorEntityDescription):
 
 SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
     TrueNASBinarySensorEntityDescription(
+        key="disk_issues",
+        name="Disk/Pool issues",
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        ha_group="System",
+        data_path="alerts",
+        data_is_on="disk_issues",
+        data_name=None,
+        data_uid=None,
+        data_reference=None,
+    ),
+    TrueNASBinarySensorEntityDescription(
         key="pool_healthy",
         name="healthy",
         icon_enabled="mdi:database",
@@ -97,7 +111,7 @@ SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
         data_path="pool",
         data_is_on="healthy",
         data_name="name",
-        data_uid="",
+        data_uid=None,
         data_reference="guid",
         data_attributes_list=DEVICE_ATTRIBUTES_POOL,
     ),
@@ -112,7 +126,7 @@ SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
         data_path="vm",
         data_is_on="running",
         data_name="name",
-        data_uid="",
+        data_uid=None,
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_VM,
         func="TrueNASVMBinarySensor",
@@ -129,7 +143,7 @@ SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
         data_path="service",
         data_is_on="running",
         data_name="display_name",
-        data_uid="",
+        data_uid=None,
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_SERVICE,
         func="TrueNASServiceBinarySensor",
@@ -145,7 +159,7 @@ SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
         data_path="app",
         data_is_on="running",
         data_name="name",
-        data_uid="",
+        data_uid=None,
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_APP,
         func="TrueNASAppBinarySensor",

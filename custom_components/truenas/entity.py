@@ -38,8 +38,8 @@ async def async_add_entities(
 ):
     """Add entities."""
     platform = ep.async_get_current_platform()
-    services = platform.platform.SENSOR_SERVICES
-    descriptions = platform.platform.SENSOR_TYPES
+    services = getattr(platform.platform, "SENSOR_SERVICES", [])
+    descriptions = getattr(platform.platform, "SENSOR_TYPES", [])
 
     for service in services:
         platform.async_register_entity_service(
@@ -73,11 +73,16 @@ async def async_add_entities(
 
         for entity_description in descriptions:
             data = coordinator.data.get(entity_description.data_path)
-            if not data:
+            if data is None:
                 continue
 
             if not entity_description.data_reference:
-                if data.get(entity_description.data_attribute) is None:
+                attr_name = getattr(
+                    entity_description,
+                    "data_attribute",
+                    getattr(entity_description, "data_is_on", None),
+                )
+                if attr_name and data.get(attr_name) is None:
                     continue
                 obj = dispatcher[entity_description.func](
                     coordinator, entity_description
@@ -123,6 +128,12 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         """Refresh cached data from the coordinator for this entity."""
         data = self.coordinator.data.get(self.entity_description.data_path, {})
         self._data = data.get(self._uid, {}) if self._uid else data
+        if self._uid and not self._data:
+            _LOGGER.debug(
+                "Data for UID %s is missing or empty in %s",
+                self._uid,
+                self.entity_description.data_path,
+            )
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -135,24 +146,34 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         if not self._uid:
             return f"{self.entity_description.name}"
 
-        if self.entity_description.name:
-            return (
-                f"{self._data[self.entity_description.data_name]} "
-                f"{self.entity_description.name}"
-            )
+        data_value = None
+        if self._data is not None and getattr(
+            self.entity_description, "data_name", None
+        ):
+            data_value = self._data.get(self.entity_description.data_name)
 
-        return f"{self._data[self.entity_description.data_name]}"
+        if data_value is None:
+            data_value = str(self._uid)
+
+        if self.entity_description.name:
+            return f"{data_value} {self.entity_description.name}"
+
+        return f"{data_value}"
 
     @property
     def unique_id(self) -> str:
         """Return a unique id for this entity."""
         if self._uid:
-            return (
-                f"{self._inst.lower()}-{self.entity_description.key}-"
-                f"{slugify(str(self._data[self.entity_description.data_reference]).lower())}"
+            data_ref = getattr(self.entity_description, "data_reference", None)
+            value = self._data.get(data_ref) if self._data and data_ref else None
+            base = (
+                slugify(str(value).lower())
+                if value is not None
+                else slugify(str(self._uid).lower())
             )
-        else:
-            return f"{self._inst.lower()}-{self.entity_description.key}"
+            return f"{self._inst.lower()}-{self.entity_description.key}-{base}"
+
+        return f"{self._inst.lower()}-{self.entity_description.key}"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -181,7 +202,7 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
                 connection_val = self._data.get(data_key, "unknown")
                 dev_connection_value = f"{self._inst}_{connection_val}"
 
-        api_scheme = getattr(self.coordinator.api, "_scheme", "ws")
+        api_scheme = self.coordinator.api.scheme
         http_scheme = "https" if api_scheme == "wss" else "http"
 
         if self.entity_description.ha_group == "System":

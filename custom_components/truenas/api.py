@@ -47,7 +47,6 @@ class TrueNASAPI:
     def __init__(
         self,
         host: str,
-        username: str,
         api_key: str,
         verify_ssl: bool = True,
         scheme: str = "wss",
@@ -59,7 +58,6 @@ class TrueNASAPI:
                 f"Invalid WebSocket scheme '{scheme}'. Expected 'ws' or 'wss'."
             )
         self._host = host
-        self._username = username
         self._api_key = api_key
         self._scheme = scheme
         self._url = f"{self._scheme}://{self._host}/websocket"
@@ -92,7 +90,9 @@ class TrueNASAPI:
         self._io_lock = RLock()
         self._connected = False
         self._error = ""
+        self._closed = False
         self._error_logged = False
+        self._binary_warning_logged = False
         self._next_rpc_id = 1
         self._ws: ClientConnection | None = None
 
@@ -425,16 +425,9 @@ class TrueNASAPI:
 
             payload = {
                 "msg": "method",
-                "method": "auth.login_ex",
+                "method": "auth.login_with_api_key",
                 "id": str(rpc_id),
-                "params": [
-                    {
-                        "mechanism": "API_KEY_PLAIN",
-                        "username": self._username,
-                        "api_key": self._api_key,
-                        "login_options": {"user_info": False},
-                    }
-                ],
+                "params": [self._api_key],
             }
 
             try:
@@ -487,6 +480,8 @@ class TrueNASAPI:
         with self._lock:
             if self._connected:
                 return True
+            if self._closed:
+                return False
             self._error = ""
             self._error_logged = False
 
@@ -496,7 +491,7 @@ class TrueNASAPI:
             kwargs = {
                 "max_size": 16777216,
                 "ping_interval": 20,
-                "open_timeout": 60,
+                "open_timeout": 10,
             }
             if self._scheme == "wss":
                 kwargs["ssl"] = self._ssl_context
@@ -541,6 +536,15 @@ class TrueNASAPI:
                 _LOGGER.debug("Error while closing WebSocket connection: %s", exc)
 
     # ---------------------------
+    #   close
+    # ---------------------------
+    def close(self) -> None:
+        """Permanently close the API and prevent reconnection."""
+        with self._lock:
+            self._closed = True
+        self.disconnect()
+
+    # ---------------------------
     #   reconnect
     # ---------------------------
     def reconnect(self) -> bool:
@@ -574,6 +578,7 @@ class TrueNASAPI:
                 return self._connected, self._error
 
         if result is None:
+            self.disconnect()
             with self._lock:
                 self._connected = False
                 if not self._error:
@@ -661,12 +666,28 @@ class TrueNASAPI:
                         self.disconnect()
                         return None
 
+                    if isinstance(message, bytes):
+                        try:
+                            message = message.decode("utf-8")
+                        except UnicodeDecodeError:
+                            if not self._binary_warning_logged:
+                                self._binary_warning_logged = True
+                                _LOGGER.warning(
+                                "Received non-UTF-8 binary WebSocket frame "
+                                "from %s; ignoring subsequent binary frames",
+                                    self._host,
+                                )
+                            continue
+
                     if not isinstance(message, str):
-                        _LOGGER.debug(
-                            "TrueNAS %s: ignoring non-string WebSocket message: %r",
-                            self._host,
-                            message,
-                        )
+                        if not self._binary_warning_logged:
+                            self._binary_warning_logged = True
+                            _LOGGER.warning(
+                            "Received non-text WebSocket frame of type %s "
+                            "from %s; ignoring subsequent non-text frames",
+                                type(message).__name__,
+                                self._host,
+                            )
                         continue
 
                     try:
@@ -725,3 +746,8 @@ class TrueNASAPI:
         """Return error."""
         with self._lock:
             return self._error
+
+    @property
+    def scheme(self) -> str:
+        """Return the scheme used for the WebSocket."""
+        return self._scheme
