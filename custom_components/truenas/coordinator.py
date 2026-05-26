@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -90,6 +89,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._version_minor: int = 0
         self._unknown_system_stat_names: set[str] = set()
 
+        self._last_disk_temp_total: int = 0
+        self._last_disk_temp_matched: int = 0
+
     # ---------------------------
     #   connected
     # ---------------------------
@@ -132,7 +134,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     await self.hass.async_add_executor_job(job)
                 except Exception as err:
-                    _LOGGER.error(
+                    _LOGGER.exception(
                         "Error running TrueNAS job %s: %s",
                         getattr(job, "__name__", job),
                         err,
@@ -158,126 +160,141 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Get system info from TrueNAS."""
         raw_system_info = self.api.query("system.info")
 
-        if isinstance(raw_system_info, dict):
-            self.ds["system_info"] = parse_api(
-                data=self.ds["system_info"],
-                source=raw_system_info,
-                vals=[
-                    {"name": "version", "default": "unknown"},
-                    {"name": "hostname", "default": "unknown"},
-                    {"name": "uptime_seconds", "default": 0},
-                    {"name": "system_serial", "default": "unknown"},
-                    {"name": "system_product", "default": "unknown"},
-                    {"name": "system_manufacturer", "default": "unknown"},
-                    {"name": "physmem", "default": 0},
-                ],
-                ensure_vals=[
-                    {"name": "uptimeEpoch", "default": 0},
-                    {"name": "cpu_temperature", "default": None},
-                    {"name": "load_shortterm", "default": 0.0},
-                    {"name": "load_midterm", "default": 0.0},
-                    {"name": "load_longterm", "default": 0.0},
-                    {"name": "cpu_usage", "default": 0.0},
-                    {"name": "cache_size-arc_value", "default": 0.0},
-                    {"name": "memory-free_value", "default": 0.0},
-                    {"name": "memory-total_value", "default": 0.0},
-                    {"name": "memory-usage_percent", "default": 0},
-                    {"name": "update_available", "type": "bool", "default": False},
-                    {"name": "update_progress", "default": 0},
-                    {"name": "update_jobid", "default": 0},
-                    {"name": "update_state", "default": "unknown"},
-                    {"name": "update_version", "default": "unknown"},
-                    {"name": "smb_connections", "default": 0},
-                ],
-            )
-        else:
+        if not isinstance(raw_system_info, dict):
             _LOGGER.debug(
                 "Skipping system_info update due to invalid/empty API response: %r",
                 raw_system_info,
             )
+        else:
+            self._update_system_info_data(raw_system_info)
 
         if not self.api.connected():
             return
 
-        # Ensure update_version is not unknown if no update is available
-        if not self.ds["system_info"].get("update_available"):
-            self.ds["system_info"]["update_version"] = self.ds["system_info"].get(
-                "version", "unknown"
-            )
+        # Update-Logik abhandeln
+        self._handle_system_updates()
+        if not self.api.connected():
+            return
 
-        # Handle running update jobs
-        if self.ds["system_info"].get("update_jobid"):
-            self.ds["system_info"] = parse_api(
-                data=self.ds["system_info"],
-                source=self.api.query(
-                    "core.get_jobs",
-                    params=[[["id", "=", self.ds["system_info"].get("update_jobid")]]],
-                ),
-                vals=[
-                    {
-                        "name": "update_progress",
-                        "source": "progress/percent",
-                        "default": 0,
-                    },
-                    {
-                        "name": "update_state",
-                        "source": "state",
-                        "default": "unknown",
-                    },
-                ],
-            )
-            if not self.api.connected():
-                return
+        # Version parsen
+        self._parse_version_strings()
 
-            if self.ds["system_info"].get("update_state") != "RUNNING" or not self.ds[
-                "system_info"
-            ].get("update_available"):
-                self.ds["system_info"]["update_progress"] = 0
-                self.ds["system_info"]["update_jobid"] = 0
-                self.ds["system_info"]["update_state"] = "unknown"
+        # Virtualisierung prüfen
+        sys_info = self.ds["system_info"]
+        self._is_virtual = sys_info.get("system_manufacturer") in [
+            "QEMU",
+            "VMware, Inc.",
+            "Microsoft Corporation",
+            "Xen",
+        ] or sys_info.get("system_product") in ["VirtualBox", "Virtual Machine"]
 
-        # Parsing logic to prevent "0.0.0" display and avoid misrepresenting
-        # the system version on malformed or missing input.
+        # Uptime berechnen
+        self._calculate_uptime()
+
+        # Netzwerk-Interfaces abfragen
+        self._query_network_interfaces()
+
+    def _update_system_info_data(self, raw_system_info: dict) -> None:
+        """Parse the raw system info dict into the data structure."""
+        self.ds["system_info"] = parse_api(
+            data=self.ds["system_info"],
+            source=raw_system_info,
+            vals=[
+                {"name": "version", "default": "unknown"},
+                {"name": "hostname", "default": "unknown"},
+                {"name": "uptime_seconds", "default": 0},
+                {"name": "system_serial", "default": "unknown"},
+                {"name": "system_product", "default": "unknown"},
+                {"name": "system_manufacturer", "default": "unknown"},
+                {"name": "physmem", "default": 0},
+            ],
+            ensure_vals=[
+                {"name": "uptimeEpoch", "default": 0},
+                {"name": "cpu_temperature", "default": None},
+                {"name": "load_shortterm", "default": 0.0},
+                {"name": "load_midterm", "default": 0.0},
+                {"name": "load_longterm", "default": 0.0},
+                {"name": "cpu_usage", "default": 0.0},
+                {"name": "cache_size-arc_value", "default": 0.0},
+                {"name": "memory-free_value", "default": 0.0},
+                {"name": "memory-total_value", "default": 0.0},
+                {"name": "memory-usage_percent", "default": 0},
+                {"name": "update_available", "type": "bool", "default": False},
+                {"name": "update_progress", "default": 0},
+                {"name": "update_jobid", "default": 0},
+                {"name": "update_state", "default": "unknown"},
+                {"name": "update_version", "default": "unknown"},
+                {"name": "smb_connections", "default": 0},
+            ],
+        )
+
+    def _handle_system_updates(self) -> None:
+        """Handle version string overrides and active update jobs."""
+        sys_info = self.ds["system_info"]
+
+        if not sys_info.get("update_available"):
+            sys_info["update_version"] = sys_info.get("version", "unknown")
+
+        job_id = sys_info.get("update_jobid")
+        if not job_id:
+            return
+
+        self.ds["system_info"] = parse_api(
+            data=sys_info,
+            source=self.api.query("core.get_jobs", params=[[["id", "=", job_id]]]),
+            vals=[
+                {"name": "update_progress", "source": "progress/percent", "default": 0},
+                {"name": "update_state", "source": "state", "default": "unknown"},
+            ],
+        )
+
+        if not self.api.connected():
+            return
+
+        updated_info = self.ds["system_info"]
+        if updated_info.get("update_state") != "RUNNING" or not updated_info.get(
+            "update_available"
+        ):
+            updated_info["update_progress"] = 0
+            updated_info["update_jobid"] = 0
+            updated_info["update_state"] = "unknown"
+
+    def _parse_version_strings(self) -> None:
+        """Extract major and minor version numbers without ReDoS risk."""
         version_str = str(self.ds["system_info"].get("version", "") or "")
         clean_version = version_str.replace("TrueNAS-", "").replace("SCALE-", "")
 
-        if match := re.search(r"(\d+)\.(\d+)", clean_version):
-            self._version_major = int(match[1])
-            self._version_minor = int(match[2])
+        base_version = clean_version.split()[0].split("-")[0]
+        parts = base_version.split(".")
+
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            self._version_major = int(parts[0])
+            self._version_minor = int(parts[1])
         elif clean_version:
             _LOGGER.debug(
                 "Failed to parse TrueNAS version from string: %s", version_str
             )
 
-        # Virtualization check
-        self._is_virtual = self.ds["system_info"].get("system_manufacturer") in [
-            "QEMU",
-            "VMware, Inc.",
-            "Microsoft Corporation",
-            "Xen",
-        ] or self.ds["system_info"].get("system_product") in [
-            "VirtualBox",
-            "Virtual Machine",
-        ]
-
-        # Uptime calculation
+    def _calculate_uptime(self) -> None:
+        """Calculate and smooth out the uptime epoch timestamp."""
         uptime_seconds = self.ds["system_info"].get("uptime_seconds", 0)
-        if uptime_seconds > 0:
-            now = datetime.now(UTC).replace(microsecond=0)
-            now_epoch = int(now.timestamp())
-            new_uptime_epoch = now_epoch - int(uptime_seconds)
+        if uptime_seconds <= 0:
+            return
 
-            old_uptime_epoch = self.ds["system_info"].get("uptimeEpoch", 0)
-            if (
-                old_uptime_epoch == 0
-                or abs(new_uptime_epoch - old_uptime_epoch)
-                > UPTIME_EPOCH_TOLERANCE_SECONDS
-            ):
-                self.ds["system_info"]["uptimeEpoch"] = new_uptime_epoch
-            else:
-                self.ds["system_info"]["uptimeEpoch"] = old_uptime_epoch
+        now = datetime.now(UTC).replace(microsecond=0)
+        new_uptime_epoch = int(now.timestamp()) - int(uptime_seconds)
+        old_uptime_epoch = self.ds["system_info"].get("uptimeEpoch", 0)
 
-        # Network interface query
+        if (
+            old_uptime_epoch == 0
+            or abs(new_uptime_epoch - old_uptime_epoch) > UPTIME_EPOCH_TOLERANCE_SECONDS
+        ):
+            self.ds["system_info"]["uptimeEpoch"] = new_uptime_epoch
+        else:
+            self.ds["system_info"]["uptimeEpoch"] = old_uptime_epoch
+
+    def _query_network_interfaces(self) -> None:
+        """Fetch and parse network interface statistics."""
         self.ds["interface"] = parse_api(
             data=self.ds["interface"],
             source=self.api.query("interface.query"),
@@ -353,7 +370,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(status_obj, dict):
             raw_status = status_obj.get("state") or status_obj.get("status")
             if isinstance(raw_status, str):
-                self.ds["system_info"]["update_state"] = raw_status
+                # Normalize to uppercase so downstream comparisons (e.g. "RUNNING")
+                # are consistent
+                self.ds["system_info"]["update_state"] = raw_status.upper()
 
         new_version_obj = (
             status_obj.get("new_version") if isinstance(status_obj, dict) else None
@@ -399,30 +418,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def get_systemstats(self) -> None:
         """Get system statistics."""
         report_epoch = int(datetime.now(UTC).replace(microsecond=0).timestamp())
-        graph_names = ["load", "cputemp", "cpu", "arcsize", "memory"]
 
-        if self.ds["interface"]:
-            graph_names.append("interface")
-
-        # TODO: Consider making this a config option. Many hypervisors do not
-        # pass through CPU temperatures, causing API errors. However, some do,
-        # so users might want to explicitly enable 'cputemp' polling even for VMs.
-        if self._is_virtual and "cputemp" in graph_names:
-            graph_names.remove("cputemp")
-
-        now = datetime.now(UTC)
-        self._systemstats_errored = {
-            name: ts
-            for name, ts in self._systemstats_errored.items()
-            if now - ts < self._systemstats_error_cooldown
-        }
-
-        graph_names = [
-            graph_name
-            for graph_name in graph_names
-            if graph_name not in self._systemstats_errored
-        ]
-
+        # 1. Liste der abzufragenden Graphen ermitteln
+        graph_names = self._determine_graph_names()
         if not graph_names:
             return
 
@@ -431,45 +429,82 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "end": report_epoch - 30,
             "aggregate": True,
         }
-        reporting_path = "reporting.netdata_graph"
+
+        # 2. API abfragen und fehlgeschlagene Graphen sammeln
+        tmp_graph, failed_graphs = self._fetch_graph_data(graph_names, graph_query)
+
+        # 3. Fehlerbehandlung und Logging für neue Fehler
+        if failed_graphs:
+            self._handle_failed_graphs(failed_graphs)
+
+        if not tmp_graph:
+            return
+
+        # 4. Statistiken verarbeiten
+        for item in tmp_graph:
+            if isinstance(item, dict):
+                self._process_system_stat(item)
+
+    def _determine_graph_names(self) -> list[str]:
+        """Determine which graphs to fetch based on state and error cooldowns."""
+        graph_names = ["load", "cputemp", "cpu", "arcsize", "memory"]
+
+        if self.ds["interface"]:
+            graph_names.append("interface")
+
+        # Virtuelle Maschinen von CPU-Temperatur ausschließen
+        if self._is_virtual and "cputemp" in graph_names:
+            graph_names.remove("cputemp")
+
+        # Fehler-Cooldowns aufräumen
+        now = datetime.now(UTC)
+        self._systemstats_errored = {
+            name: ts
+            for name, ts in self._systemstats_errored.items()
+            if now - ts < self._systemstats_error_cooldown
+        }
+
+        # Nur Graphen zurückgeben, die aktuell nicht im Cooldown sind
+        return [name for name in graph_names if name not in self._systemstats_errored]
+
+    def _fetch_graph_data(
+        self, graph_names: list[str], graph_query: dict
+    ) -> tuple[list, list[str]]:
+        """Query the TrueNAS API for each graph and separate successes from failures."""
         tmp_graph = []
         failed_graphs = []
+        reporting_path = "reporting.netdata_graph"
 
         for graph_name in graph_names:
             graph_data = self.api.query(
-                reporting_path,
-                params=[graph_name, graph_query],
+                reporting_path, params=[graph_name, graph_query]
             )
             if isinstance(graph_data, list):
                 tmp_graph.extend(graph_data)
             else:
                 failed_graphs.append(graph_name)
 
-        # Only log when a graph transitions into a failed state (i.e. was not
-        # already in _systemstats_errored), to avoid spamming the log on every
-        # coordinator update while the graph remains broken.
-        if failed_graphs:
-            newly_failed_graphs: list[str] = []
-            now = datetime.now(UTC)
-            for graph_name in failed_graphs:
-                if graph_name not in self._systemstats_errored:
-                    newly_failed_graphs.append(graph_name)
-                self._systemstats_errored[graph_name] = now
+        return tmp_graph, failed_graphs
 
-            if newly_failed_graphs:
-                _LOGGER.warning(
-                    "TrueNAS %s failed to fetch graphs: %s",
-                    self.host,
-                    newly_failed_graphs,
-                )
+    def _handle_failed_graphs(self, failed_graphs: list[str]) -> None:
+        """Track failed graphs and log warnings only for newly failed ones.
 
-        if not tmp_graph:
-            return
+        This prevents log spam.
+        """
+        newly_failed_graphs: list[str] = []
+        now = datetime.now(UTC)
 
-        for item in tmp_graph:
-            if not isinstance(item, dict):
-                continue
-            self._process_system_stat(item)
+        for graph_name in failed_graphs:
+            if graph_name not in self._systemstats_errored:
+                newly_failed_graphs.append(graph_name)
+            self._systemstats_errored[graph_name] = now
+
+        if newly_failed_graphs:
+            _LOGGER.warning(
+                "TrueNAS %s failed to fetch graphs: %s",
+                self.host,
+                newly_failed_graphs,
+            )
 
     def _process_system_stat(self, item: dict) -> None:
         """Process a single system statistic item."""
@@ -477,97 +512,103 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not name:
             return
 
-        # CPU temperature
-        if name == "cputemp":
-            mean_vals = item.get("aggregations", {}).get("mean", {})
-            valid_means = [v for v in mean_vals.values() if isinstance(v, (int, float))]
-            self.ds["system_info"]["cpu_temperature"] = (
-                round(max(valid_means), 2) if valid_means else None
-            )
+        # Mapping von Namen zu den jeweiligen Verarbeitungs-Methoden
+        stat_handlers = {
+            "cputemp": self._process_stat_cputemp,
+            "load": self._process_stat_load,
+            "cpu": self._process_stat_cpu,
+            "interface": self._process_stat_interface_entry,
+            "memory": self._process_stat_memory,
+            "arcsize": self._process_stat_arcsize,
+        }
 
-        # CPU load
-        elif name == "load":
-            tmp_arr = ("shortterm", "midterm", "longterm")
-            self._systemstats_process(tmp_arr, item, "load")
-
-        # CPU usage
-        elif name == "cpu":
-            tmp_arr = "cpu"
-            self._systemstats_process(tmp_arr, item, "cpu")
-            cpu_cpu = self.ds["system_info"].get("cpu_cpu", 0.0)
-            self.ds["system_info"]["cpu_usage"] = round(cpu_cpu, 2)
-
-        # Interface
-        elif name == "interface":
-            tmp_etc = item["identifier"]
-            if tmp_etc in self.ds["interface"]:
-                self._process_system_stat_interface(item, tmp_etc)
-
-        # memory
-        elif name == "memory":
-            tmp_arr = "available"
-            self.ds["system_info"]["memory-total_value"] = round(
-                self.ds["system_info"].get("physmem", 0)
-            )
-
-            self._systemstats_process(tmp_arr, item, "memory")
-            total_mem = self.ds["system_info"].get("memory-total_value", 0.0)
-            free_mem = self.ds["system_info"].get("memory-free_value", 0.0)
-            if total_mem > 0:
-                self.ds["system_info"]["memory-usage_percent"] = round(
-                    100 * (float(total_mem) - float(free_mem)) / float(total_mem)
-                )
-
-        # arcsize
-        elif name == "arcsize":
-            tmp_arr = "arc_size"
-            self._systemstats_process(tmp_arr, item, "arcsize")
-
+        if handler := stat_handlers.get(name):
+            handler(item)
         else:
-            # Log a warning once per unknown name to surface potential API
-            # changes/misconfigurations.
-            if name not in self._unknown_system_stat_names:
-                self._unknown_system_stat_names.add(name)
-                _LOGGER.warning(
-                    "TrueNAS %s returned unknown system stat graph name '%s'; "
-                    "this may indicate a TrueNAS API change or misconfiguration",
-                    self.host,
-                    name,
-                )
+            self._handle_unknown_stat(name)
 
-                # Basic near-miss detection for diagnostics (debug level only).
-                def _similar(a: str, b: str) -> bool:
-                    a_l, b_l = a.lower(), b.lower()
-                    if a_l == b_l:
-                        return False
-                    if a_l.replace("_", "") == b_l.replace("_", ""):
-                        return True
-                    if (
-                        a_l.startswith(b_l)
-                        or a_l.endswith(b_l)
-                        or b_l.startswith(a_l)
-                        or b_l.endswith(a_l)
-                    ):
-                        return True
-                    return abs(len(a_l) - len(b_l)) <= 2 and a_l[:3] == b_l[:3]
+    def _process_stat_cputemp(self, item: dict) -> None:
+        """Process CPU temperature statistics."""
+        mean_vals = item.get("aggregations", {}).get("mean", {})
+        valid_means = [v for v in mean_vals.values() if isinstance(v, (int, float))]
+        self.ds["system_info"]["cpu_temperature"] = (
+            round(max(valid_means), 2) if valid_means else None
+        )
 
-                known_names = {
-                    "cputemp",
-                    "load",
-                    "cpu",
-                    "interface",
-                    "memory",
-                    "arcsize",
-                }
-                near_misses = [k for k in known_names if _similar(name, k)]
-                if near_misses:
-                    _LOGGER.debug(
-                        "Unknown system stat graph name '%s' from TrueNAS %s "
-                        "is similar to known names: %s",
-                        name,
-                        self.host,
-                        ", ".join(sorted(near_misses)),
-                    )
+    def _process_stat_load(self, item: dict) -> None:
+        """Process CPU load statistics."""
+        self._systemstats_process(("shortterm", "midterm", "longterm"), item, "load")
+
+    def _process_stat_cpu(self, item: dict) -> None:
+        """Process CPU usage statistics."""
+        self._systemstats_process("cpu", item, "cpu")
+        cpu_cpu = self.ds["system_info"].get("cpu_cpu", 0.0)
+        self.ds["system_info"]["cpu_usage"] = round(cpu_cpu, 2)
+
+    def _process_stat_interface_entry(self, item: dict) -> None:
+        """Process network interface statistics."""
+        tmp_etc = item.get("identifier")
+        if tmp_etc in self.ds["interface"]:
+            self._process_system_stat_interface(item, tmp_etc)
+
+    def _process_stat_memory(self, item: dict) -> None:
+        """Process RAM memory statistics."""
+        self.ds["system_info"]["memory-total_value"] = round(
+            self.ds["system_info"].get("physmem", 0)
+        )
+        self._systemstats_process("available", item, "memory")
+
+        total_mem = self.ds["system_info"].get("memory-total_value", 0.0)
+        free_mem = self.ds["system_info"].get("memory-free_value", 0.0)
+        if total_mem > 0:
+            self.ds["system_info"]["memory-usage_percent"] = round(
+                100 * (float(total_mem) - float(free_mem)) / float(total_mem)
+            )
+
+    def _process_stat_arcsize(self, item: dict) -> None:
+        """Process ZFS ARC size statistics."""
+        self._systemstats_process("arc_size", item, "arcsize")
+
+    def _handle_unknown_stat(self, name: str) -> None:
+        """Log a warning and look for near-misses for unknown stat names."""
+        if name in self._unknown_system_stat_names:
+            return
+
+        self._unknown_system_stat_names.add(name)
+        _LOGGER.warning(
+            "TrueNAS %s returned unknown system stat graph name '%s'; "
+            "this may indicate a TrueNAS API change or misconfiguration",
+            self.host,
+            name,
+        )
+
+        known_names = {"cputemp", "load", "cpu", "interface", "memory", "arcsize"}
+        if near_misses := [
+            k for k in known_names if self._is_similar_stat_name(name, k)
+        ]:
+            _LOGGER.debug(
+                "Unknown system stat graph name '%s' from TrueNAS %s "
+                "is similar to known names: %s",
+                name,
+                self.host,
+                ", ".join(sorted(near_misses)),
+            )
+
+    def _is_similar_stat_name(self, a: str, b: str) -> bool:
+        """Check if two stat names are similar (near-miss detection)."""
+        a_l, b_l = a.lower(), b.lower()
+        if a_l == b_l:
+            return False
+        if a_l.replace("_", "") == b_l.replace("_", ""):
+            return True
+        if (
+            a_l.startswith(b_l)
+            or a_l.endswith(b_l)
+            or b_l.startswith(a_l)
+            or b_l.endswith(a_l)
+        ):
+            return True
+        return abs(len(a_l) - len(b_l)) <= 2 and a_l[:3] == b_l[:3]
 
     def _process_system_stat_interface(self, item: dict, tmp_etc: str) -> None:
         """Process interface system statistics."""
@@ -609,36 +650,52 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     #   _systemstats_process
     # ---------------------------
     def _systemstats_process(self, arr, graph, t) -> None:
-        arr = (arr,) if isinstance(arr, str) else tuple(arr)
+        """Process system statistics and map to data structures."""
+        targets = (arr,) if isinstance(arr, str) else tuple(arr)
         aggregations = graph.get("aggregations")
         legend = graph.get("legend")
 
-        if isinstance(aggregations, dict) and isinstance(legend, list):
-            for tmp_var in legend:
-                if tmp_var in arr:
-                    mean_data = aggregations.get("mean")
-                    tmp_val = (
-                        mean_data.get(tmp_var) if isinstance(mean_data, dict) else 0.0
-                    ) or 0.0
-                    if t == "memory":
-                        if tmp_var == "available":
-                            self.ds["system_info"]["memory-free_value"] = round(tmp_val)
-                    elif t == "cpu":
-                        self.ds["system_info"][f"cpu_{tmp_var}"] = round(tmp_val, 2)
-                    elif t == "load":
-                        self.ds["system_info"][f"load_{tmp_var}"] = round(tmp_val, 2)
-                    elif t == "arcsize":
-                        self.ds["system_info"]["cache_size-arc_value"] = round(
-                            tmp_val, 2
-                        )
-                    else:
-                        self.ds["system_info"][tmp_var] = round(tmp_val, 2)
+        # Fallback-Path: if API-Stuctur nok
+        if not isinstance(aggregations, dict) or not isinstance(legend, list):
+            self._fill_fallback_stats(targets, t)
+            return
+
+        mean_data = aggregations.get("mean", {})
+        if not isinstance(mean_data, dict):
+            mean_data = {}
+
+        for metric_name in legend:
+            if metric_name not in targets:
+                continue
+
+            raw_val = mean_data.get(metric_name)
+            val = float(raw_val) if isinstance(raw_val, (int, float)) else 0.0
+
+            self._assign_stat_value(t, metric_name, val)
+
+    def _assign_stat_value(self, stat_type: str, name: str, val: float) -> None:
+        """Map the processed value to the correct field in system_info."""
+        sys_info = self.ds["system_info"]
+
+        if stat_type == "memory" and name == "available":
+            sys_info["memory-free_value"] = round(val)
+        elif stat_type == "cpu":
+            sys_info[f"cpu_{name}"] = round(val, 2)
+        elif stat_type == "load":
+            sys_info[f"load_{name}"] = round(val, 2)
+        elif stat_type == "arcsize":
+            sys_info["cache_size-arc_value"] = round(val, 2)
         else:
-            for tmp_load in arr:
-                if t == "cpu":
-                    self.ds["system_info"][f"cpu_{tmp_load}"] = 0.0
-                else:
-                    self.ds["system_info"][tmp_load] = 0.0
+            sys_info[name] = round(val, 2)
+
+    def _fill_fallback_stats(self, targets: tuple, stat_type: str) -> None:
+        """Fill fallback values (0.0) when API response is invalid."""
+        sys_info = self.ds["system_info"]
+        for metric_name in targets:
+            if stat_type == "cpu":
+                sys_info[f"cpu_{metric_name}"] = 0.0
+            else:
+                sys_info[metric_name] = 0.0
 
     # ---------------------------
     #   get_service
@@ -749,53 +806,56 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.api.connected():
             return
 
-        # Process pools
-        tmp_dataset_available = {}
-        tmp_dataset_total = {}
-        for uid, vals in self.ds["dataset"].items():
-            tmp_dataset_available[self.ds["dataset"][uid]["mountpoint"]] = vals[
-                "available"
-            ]
+        # Mappings aus den Datasets vorbereiten
+        dataset_avail, dataset_total = self._build_dataset_mappings()
 
-            tmp_dataset_total[self.ds["dataset"][uid]["mountpoint"]] = (
-                vals["available"] + vals["used"]
-            )
-
+        # Pools einzeln verarbeiten
         for uid, vals in self.ds["pool"].items():
-            if vals.get("free") is not None:
-                self.ds["pool"][uid]["available"] = vals["free"]
+            self._process_single_pool(uid, vals, dataset_avail, dataset_total)
 
-            if vals.get("size") is not None:
-                self.ds["pool"][uid]["total"] = vals["size"]
-            elif vals.get("allocated") is not None or vals.get("free") is not None:
-                self.ds["pool"][uid]["total"] = vals.get("allocated", 0) + vals.get(
-                    "free", 0
-                )
+    def _build_dataset_mappings(self) -> tuple[dict[str, float], dict[str, float]]:
+        """Build lookup maps for available and total space from datasets."""
+        dataset_avail = {}
+        dataset_total = {}
 
-            path = vals.get("path")
-            if (
-                path
-                and path in tmp_dataset_available
-                and not self.ds["pool"][uid]["available"]
-            ):
-                self.ds["pool"][uid]["available"] = tmp_dataset_available[path]
+        for uid, vals in self.ds["dataset"].items():
+            mountpoint = self.ds["dataset"][uid]["mountpoint"]
+            dataset_avail[mountpoint] = vals["available"]
+            dataset_total[mountpoint] = vals["available"] + vals["used"]
 
-            if path and path in tmp_dataset_total and not self.ds["pool"][uid]["total"]:
-                self.ds["pool"][uid]["total"] = tmp_dataset_total[path]
+        return dataset_avail, dataset_total
 
-            if self.ds["pool"][uid]["total"] > 0:
-                self.ds["pool"][uid]["usage"] = round(
-                    (
-                        (
-                            self.ds["pool"][uid]["total"]
-                            - self.ds["pool"][uid]["available"]
-                        )
-                        / self.ds["pool"][uid]["total"]
-                    )
-                    * 100
-                )
-            else:
-                self.ds["pool"][uid]["usage"] = 0
+    def _process_single_pool(
+        self, uid: str, vals: dict, dataset_avail: dict, dataset_total: dict
+    ) -> None:
+        """Calculate storage stats and capacity usage for a single pool."""
+        pool_entry = self.ds["pool"][uid]
+
+        # Basis-Werte setzen
+        if vals.get("free") is not None:
+            pool_entry["available"] = vals["free"]
+
+        if vals.get("size") is not None:
+            pool_entry["total"] = vals["size"]
+        elif vals.get("allocated") is not None or vals.get("free") is not None:
+            pool_entry["total"] = vals.get("allocated", 0) + vals.get("free", 0)
+
+        # Fallback auf Dataset-Werte falls Pool-Werte fehlen/null sind
+        path = vals.get("path")
+        if path and not pool_entry["available"]:
+            pool_entry["available"] = dataset_avail.get(path, pool_entry["available"])
+
+        if path and not pool_entry["total"]:
+            pool_entry["total"] = dataset_total.get(path, pool_entry["total"])
+
+        # Prozentuale Belegung berechnen
+        total = pool_entry["total"]
+        if total > 0:
+            pool_entry["usage"] = round(
+                ((total - pool_entry["available"]) / total) * 100
+            )
+        else:
+            pool_entry["usage"] = 0
 
     # ---------------------------
     #   get_dataset
@@ -948,31 +1008,63 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ]:
             self._fallback_disk_temperatures(missing_disks, bool(netdata_temps))
 
+    def _log_disk_mapping_collision(
+        self, key: str, existing_uid: str, colliding_uid: str
+    ) -> None:
+        """Log a warning when two disks share the same mapping key."""
+        existing_vals = self.ds["disk"].get(existing_uid, {})
+        colliding_vals = self.ds["disk"].get(colliding_uid, {})
+        _LOGGER.warning(
+            "Disk mapping collision for key '%s': existing disk %s "
+            "(identifier=%s, devname=%s, name=%s, serial=%s) and "
+            "colliding disk %s (identifier=%s, devname=%s, name=%s, "
+            "serial=%s). Netdata temperatures may be mapped to the "
+            "wrong disk.",
+            key,
+            existing_uid,
+            existing_vals.get("identifier"),
+            existing_vals.get("devname"),
+            existing_vals.get("name"),
+            existing_vals.get("serial"),
+            colliding_uid,
+            colliding_vals.get("identifier"),
+            colliding_vals.get("devname"),
+            colliding_vals.get("name"),
+            colliding_vals.get("serial"),
+        )
+
     def _apply_netdata_disk_temps(self, netdata_temps: dict[str, float]) -> None:
         """Map netdata temperatures to disk entities."""
-        disk_map = {}
-        for uid, vals in self.ds["disk"].items():
-            # Priority: identifier > devname > name
-            for key in (
-                vals.get("identifier"),
-                vals.get("devname"),
-                vals.get("name"),
-            ):
-                if key:
-                    if key not in disk_map:
-                        disk_map[key] = uid
-                    elif disk_map[key] != uid:
-                        _LOGGER.debug(
-                            "Disk mapping collision: key '%s' resolves "
-                            "to both %s and %s",
-                            key,
-                            disk_map[key],
-                            uid,
-                        )
+        identifier_map: dict[str, str] = {}
+        devname_map: dict[str, str] = {}
+        name_map: dict[str, str] = {}
 
-        for disk_name, temp in netdata_temps.items():
-            if disk_name in disk_map:
-                self.ds["disk"][disk_map[disk_name]]["temperature"] = round(temp, 2)
+        # 1. Maps befüllen über flache Hilfsmethode
+        for uid, vals in self.ds["disk"].items():
+            self._map_disk_key(vals.get("identifier"), uid, identifier_map)
+            self._map_disk_key(vals.get("devname"), uid, devname_map)
+            self._map_disk_key(vals.get("name"), uid, name_map)
+
+        # 2. Netdata-Keys auflösen mithilfe von Dict-Lookups (.get) statt If-Kaskaden
+        for key, temp in netdata_temps.items():
+            # Nutzt die implizite Priorität: identifier_map > devname_map > name_map
+            uid = identifier_map.get(key) or devname_map.get(key) or name_map.get(key)
+
+            if uid and (disk_vals := self.ds["disk"].get(uid)):
+                disk_vals["temperature"] = round(temp, 2)
+
+    def _map_disk_key(
+        self, key: str | None, uid: str, target_map: dict[str, str]
+    ) -> None:
+        """Safely map a disk key to its UID and log collisions if they occur."""
+        if not key:
+            return
+
+        existing_uid = target_map.get(key)
+        if existing_uid and existing_uid != uid:
+            self._log_disk_mapping_collision(key, existing_uid, uid)
+        else:
+            target_map[key] = uid
 
     def _fallback_disk_temperatures(
         self, missing_disks: list[str], has_netdata: bool
@@ -980,16 +1072,50 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch fallback temperatures from API and map them to missing disks."""
         temps = self.api.query(
             "disk.temperatures",
-            params={},
         )
 
         if self._is_valid_disk_temperature_payload(temps):
+            self._reset_disk_temp_match_counters()
             for uid in missing_disks:
                 self._map_single_disk_api_temp(uid, temps)
+            self._log_disk_temp_mapping_summary()
         elif not has_netdata:
             _LOGGER.warning(
                 "Failed to update disk temperatures from API 'disk.temperatures': %s",
                 temps,
+            )
+
+    def _reset_disk_temp_match_counters(self) -> None:
+        """Reset disk temperature mapping counters at the start of a refresh."""
+        self._last_disk_temp_total = 0
+        self._last_disk_temp_matched = 0
+
+    def _record_disk_temp_match(self, matched: bool) -> None:
+        """Record the result of a single disk temperature mapping."""
+        self._last_disk_temp_total += 1
+        if matched:
+            self._last_disk_temp_matched += 1
+
+    def _log_disk_temp_mapping_summary(self) -> None:
+        """Log a summary of disk temperature mapping results after a refresh."""
+        if self._last_disk_temp_total == 0:
+            return
+
+        if self._last_disk_temp_matched == 0:
+            # No disks matched at all: likely configuration or API naming mismatch.
+            _LOGGER.warning(
+                "Failed to match temperature data for any of the %d disks returned by "
+                "the TrueNAS API. This may indicate a configuration issue or a change "
+                "in the API's disk naming scheme. Check that disk identifiers in "
+                "Home Assistant match those exposed by TrueNAS.",
+                self._last_disk_temp_total,
+            )
+        elif self._last_disk_temp_matched < self._last_disk_temp_total:
+            # Some disks matched, some did not: keep it at debug level for now.
+            _LOGGER.debug(
+                "Matched temperature data for %d of %d disks from the TrueNAS API.",
+                self._last_disk_temp_matched,
+                self._last_disk_temp_total,
             )
 
     def _is_valid_disk_temperature_payload(self, temps: Any) -> bool:
@@ -1003,7 +1129,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Map a single disk's temperature from the API payload."""
         vals = self.ds["disk"][uid]
         candidate_keys: list[str] = []
-        for key in ("name", "devname", "identifier"):
+        for key in ("identifier", "devname", "name"):
             value = vals.get(key)
             if isinstance(value, str) and value:
                 candidate_keys.append(value)
@@ -1012,6 +1138,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             (temps[key] for key in candidate_keys if key in temps), None
         )
 
+        matched = False
         if matched_temp is None:
             _LOGGER.debug(
                 "No matching temperature entry in 'disk.temperatures' "
@@ -1021,6 +1148,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         elif isinstance(matched_temp, (int, float)):
             self.ds["disk"][uid]["temperature"] = matched_temp
+            matched = True
         else:
             _LOGGER.debug(
                 "Invalid temperature value %r for disk uid=%s",
@@ -1028,22 +1156,14 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 uid,
             )
 
+        # Record the mapping result for higher-level summary logging.
+        self._record_disk_temp_match(matched)
+
     def _disk_temps_from_netdata(self) -> dict[str, float] | None:
         """Return disk temperatures from netdata graphs when available."""
         if self._disk_temp_graph is None:
             graphs = self.api.query("reporting.netdata_graphs")
-            graph_name = ""
-            if isinstance(graphs, list):
-                for graph in graphs:
-                    name = str(graph.get("name", ""))
-                    title = str(graph.get("title", "")).lower()
-                    vertical = str(graph.get("vertical_label", "")).lower()
-                    if ("disk" in name or "disk" in title) and (
-                        "temp" in name or "temp" in title or "celsius" in vertical
-                    ):
-                        graph_name = name
-                        break
-            self._disk_temp_graph = graph_name
+            self._disk_temp_graph = self._find_disk_temp_graph(graphs)
 
         if not self._disk_temp_graph:
             return None
@@ -1062,9 +1182,8 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
 
         temps = {}
-        # Sanity bounds for temperatures in °C to avoid clearly invalid readings
-        min_temp_c = 0.0
-        max_temp_c = 100.0
+        min_temp_c = getattr(self, "_disk_temp_min_c", -20.0)
+        max_temp_c = getattr(self, "_disk_temp_max_c", 120.0)
 
         for entry in graph_data:
             identifier = entry.get("identifier")
@@ -1072,27 +1191,64 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not identifier or not isinstance(mean, dict) or not mean:
                 continue
 
-            # Collect numeric mean values and discard values outside sane bounds
-            valid_means = [
-                v
-                for v in mean.values()
-                if isinstance(v, (int, float)) and min_temp_c <= v <= max_temp_c
-            ]
-            if not valid_means:
-                continue
-
-            # Use median to reduce the impact of transient spikes/outliers
-            sorted_vals = sorted(valid_means)
-            n = len(sorted_vals)
-            mid = n // 2
-            median_val = (
-                sorted_vals[mid]
-                if n % 2 == 1
-                else (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
-            )
-            temps[str(identifier)] = median_val
+            if (
+                median_val := self._process_entry_temperature(
+                    identifier, mean, min_temp_c, max_temp_c
+                )
+            ) is not None:
+                temps[str(identifier)] = median_val
 
         return temps or None
+
+    def _find_disk_temp_graph(self, graphs: any) -> str:
+        """Scan available netdata graphs to find the disk temperature graph name."""
+        if not isinstance(graphs, list):
+            return ""
+
+        for graph in graphs:
+            name = str(graph.get("name", ""))
+            title = str(graph.get("title", "")).lower()
+            vertical = str(graph.get("vertical_label", "")).lower()
+
+            if ("disk" in name or "disk" in title) and (
+                "temp" in name or "temp" in title or "celsius" in vertical
+            ):
+                return name
+        return ""
+
+    def _process_entry_temperature(
+        self, identifier: str, mean: dict, min_temp: float, max_temp: float
+    ) -> float | None:
+        """Validate temperature values and calculate the median.
+
+        Calculates the median for a single disk entry.
+        """
+        raw_means = [v for v in mean.values() if isinstance(v, (int, float))]
+        valid_means = [v for v in raw_means if min_temp <= v <= max_temp]
+
+        if raw_means and not valid_means:
+            _LOGGER.debug(
+                "Discarding out-of-range disk temperature readings "
+                "for %s: %s (bounds: %.1f–%.1f °C)",
+                identifier,
+                raw_means,
+                min_temp,
+                max_temp,
+            )
+
+        if not valid_means:
+            return None
+
+        # Median-Berechnung
+        sorted_vals = sorted(valid_means)
+        n = len(sorted_vals)
+        mid = n // 2
+
+        return (
+            sorted_vals[mid]
+            if n % 2 == 1
+            else (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
+        )
 
     # ---------------------------
     #   get_vm
@@ -1174,9 +1330,15 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(smb_status, list):
             self.ds["system_info"]["smb_connections"] = len(smb_status)
         elif isinstance(smb_status, dict) and "sessions" in smb_status:
-            self.ds["system_info"]["smb_connections"] = len(
-                smb_status.get("sessions", [])
-            )
+            sessions = smb_status.get("sessions")
+            if isinstance(sessions, list):
+                self.ds["system_info"]["smb_connections"] = len(sessions)
+            else:
+                _LOGGER.debug(
+                    "Unexpected type for 'sessions' in smb.status response: %s",
+                    type(sessions).__name__,
+                )
+                self.ds["system_info"]["smb_connections"] = 0
         else:
             self.ds["system_info"]["smb_connections"] = 0
 
@@ -1361,13 +1523,18 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.config_entry.data.get("cronjob_skip_disabled", True),
         )
 
-        for uid, vals in list(self.ds["cronjob"].items()):
+        # FIX: Wir holen uns vorab die IDs als Tuple. Das ist ein unveränderbares
+        # Iterable, weshalb .pop(uid) danach keinen RuntimeError mehr wirft.
+        for uid in tuple(self.ds["cronjob"]):
+            vals = self.ds["cronjob"][uid]
+
             if skip_disabled and not vals.get("enabled", True):
                 self.ds["cronjob"].pop(uid)
                 continue
 
             description = (vals.get("description") or "").strip()
             command = (vals.get("command") or "").strip()
+
             if description:
                 display_name = description
             elif command:

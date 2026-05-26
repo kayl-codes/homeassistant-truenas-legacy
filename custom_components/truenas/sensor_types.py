@@ -11,7 +11,6 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    ICON_GAUGE,
     PERCENTAGE,
     UnitOfDataRate,
     UnitOfInformation,
@@ -20,6 +19,7 @@ from homeassistant.const import (
 from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
+    ICON_GAUGE,
     SCHEMA_SERVICE_CLOUDSYNC_ABORT,
     SCHEMA_SERVICE_CLOUDSYNC_RUN,
     SCHEMA_SERVICE_DATASET_SNAPSHOT,
