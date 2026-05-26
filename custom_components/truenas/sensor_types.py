@@ -11,6 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
+    ICON_GAUGE,
     PERCENTAGE,
     UnitOfDataRate,
     UnitOfInformation,
@@ -230,7 +231,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="system_load_shortterm",
         name="CPU load shortterm",
-        icon="mdi:gauge",
+        icon=ICON_GAUGE,
         native_unit_of_measurement=None,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -245,7 +246,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="system_load_midterm",
         name="CPU load midterm",
-        icon="mdi:gauge",
+        icon=ICON_GAUGE,
         native_unit_of_measurement=None,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -260,7 +261,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="system_load_longterm",
         name="CPU load longterm",
-        icon="mdi:gauge",
+        icon=ICON_GAUGE,
         native_unit_of_measurement=None,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,

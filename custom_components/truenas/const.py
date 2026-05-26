@@ -10,7 +10,7 @@ DOMAIN = "truenas"
 DEFAULT_NAME = "root"
 ATTRIBUTION = "Data provided by TrueNAS integration"
 
-DEFAULT_HOST = "192.168.1.100"
+DEFAULT_HOST = "trueas.local"
 
 # Conversion factor: kilobits per second to kibibytes per second
 # (1000 / 8192 = ~0.12207)
@@ -111,3 +111,6 @@ SERVICE_APP_START = "app_start"
 SCHEMA_SERVICE_APP_START = {}
 SERVICE_APP_STOP = "app_stop"
 SCHEMA_SERVICE_APP_STOP = {}
+
+ERROR_API_FORMAT = "TrueNAS %s API error: %s"
+ICON_GAUGE = "mdi:gauge"

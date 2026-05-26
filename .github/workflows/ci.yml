@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code from GitHub
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v4.2.2"
       - name: Install Ruff
         run: pip install ruff
       - name: Run Ruff Check
@@ -35,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code from GitHub
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v4.2.2"
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.13'
       - name: Generate Requirements lists
@@ -61,9 +61,9 @@ jobs:
       contents: write
     steps:
       - name: Check out code from GitHub
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v4.2.2"
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.13'
       - name: Install Bandit
@@ -79,6 +79,6 @@ jobs:
       contents: read
     steps:
       - name: Check out code from GitHub
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v4.2.2"
       - name: Run hassfest
         uses: home-assistant/actions/hassfest@master

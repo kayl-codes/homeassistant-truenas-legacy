@@ -1,0 +1,13 @@
+name: Auto Comment Conflicts
+on:
+  push:
+    branches: [main, master]
+  pull_request_target:
+    types: [synchronize, opened]
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for conflicts
+        uses: actions/checkout@v4.2.2
