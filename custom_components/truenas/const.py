@@ -111,3 +111,6 @@ SERVICE_APP_START = "app_start"
 SCHEMA_SERVICE_APP_START = {}
 SERVICE_APP_STOP = "app_stop"
 SCHEMA_SERVICE_APP_STOP = {}
+
+ERROR_API_FORMAT = "TrueNAS %s API error: %s"
+ICON_GAUGE = "mdi:gauge"

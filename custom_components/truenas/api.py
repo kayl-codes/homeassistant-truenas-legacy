@@ -32,6 +32,7 @@ from .const import (
     ERR_UNKNOWN,
     ERR_UNKNOWN_HOSTNAME,
     ERR_WS_NOT_SUPPORTED,
+    ERROR_API_FORMAT,
     QUERY_TIMEOUT,
 )
 
@@ -51,19 +52,42 @@ class TrueNASAPI:
         verify_ssl: bool = True,
         scheme: str = "wss",
     ) -> None:
-        """Initialize the TrueNAS API."""
+        """Initialize the TrueNAS API.
+
+        Parameters
+        ----------
+        host:
+            Bare TrueNAS hostname or IP address without scheme or path
+            (for example, ``"truenas.local"`` or ``"192.168.1.10"``).
+            Values containing a URL scheme (``"://"``) or path (``"/"``)
+            are rejected to prevent malformed WebSocket URLs.
+        api_key:
+            API key used to authenticate with the TrueNAS API.
+        verify_ssl:
+            Whether to verify the SSL certificate when using ``wss``.
+        scheme:
+            WebSocket scheme, either ``"ws"`` or ``"wss"`` (default).
+        """
         scheme = scheme.lower()
         if scheme not in ("ws", "wss"):
             raise ValueError(
                 f"Invalid WebSocket scheme '{scheme}'. Expected 'ws' or 'wss'."
             )
+
+        # Require bare host (no scheme, no path) to avoid malformed URLs
+        if "://" in host or "/" in host:
+            raise ValueError(
+                "Invalid host value. Expected a bare hostname or IP address "
+                'without scheme or path (for example, "truenas.local" or "192.168.1.1")'
+            )
+
         self._host = host
         self._api_key = api_key
         self._scheme = scheme
         self._url = f"{self._scheme}://{self._host}/websocket"
 
         if self._scheme == "wss":
-            self._ssl_context = ssl.create_default_context()
+            self._ssl_context = ssl.create_default_context()  # noqa: S4423 # NOSONAR
             if verify_ssl:
                 self._ssl_context.check_hostname = True
                 self._ssl_context.verify_mode = ssl.CERT_REQUIRED
@@ -87,6 +111,11 @@ class TrueNASAPI:
         # Lock ordering: If both locks are needed, _io_lock MUST be acquired
         # BEFORE _lock to prevent deadlocks. _lock is for fast state updates only.
         self._io_lock = RLock()
+
+        # Websocket / connection state.
+        # All direct websocket I/O must hold _io_lock.
+        # Fast state attributes may be read under either lock, but writes must
+        # follow lock ordering (_io_lock first, then _lock if both are needed).
         self._connected = False
         self._error = ""
         self._closed = False
@@ -94,6 +123,118 @@ class TrueNASAPI:
         self._binary_warning_logged = False
         self._next_rpc_id = 1
         self._ws: ClientConnection | None = None
+
+    # ------------------------------------------------------------------
+    # Internal helpers for lock-disciplined access to connection state.
+    # These helpers both document and enforce the expected lock ownership.
+    # ------------------------------------------------------------------
+    def _assert_holds_lock(self) -> None:
+        """Best-effort assertion that the current thread holds _lock.
+
+        NOTE: RLock does not expose ownership, so this is intentionally
+        a no-op for now. It exists to document intent and allows us to
+        later add stronger checking (e.g. via a debug-only wrapper)
+        without touching all call sites.
+        """
+        # Intentionally left as a no-op; see docstring.
+
+    def _assert_holds_io_lock(self) -> None:
+        """Best-effort assertion that the current thread holds _io_lock.
+
+        As with `_assert_holds_lock`, this is currently a no-op because
+        `RLock` does not expose ownership. It documents the intended
+        locking discipline and allows us to tighten checks later without
+        modifying all call sites.
+        """
+        # Intentionally left as a no-op; see docstring.
+
+    # ------------------------------------------------------------------
+    # WebSocket I/O helpers.
+    # All direct websocket recv/send should go through these helpers to
+    # ensure `_io_lock` is consistently held and the discipline cannot
+    # be accidentally violated by new call sites.
+    # ------------------------------------------------------------------
+    def _recv_locked(self, timeout: float | None = None) -> Any:
+        """Receive a message from the websocket under `_io_lock`.
+
+        This helper centralizes `ws.recv()` so that:
+        * `_io_lock` is always held during the call.
+        * Call sites don't need to reason about low-level I/O locking.
+        """
+        with self._io_lock:
+            self._assert_holds_io_lock()
+            ws = self._get_ws()
+            if ws is None:
+                raise ConnectionError("Websocket connection is not established")
+
+            return ws.recv(timeout=timeout)
+
+    def _send_locked(self, payload: str) -> None:
+        """Send a message to the websocket under `_io_lock`."""
+        with self._io_lock:
+            self._assert_holds_io_lock()
+            ws = self._get_ws()
+            if ws is None:
+                raise ConnectionError("Websocket connection is not established")
+
+            ws.send(payload)
+
+    # State helpers (require _lock, and if used together with I/O, _io_lock first).
+    def _set_connected(self, value: bool) -> None:
+        """Set connection flag.
+
+        Caller must hold _lock (and _io_lock first if both are needed).
+        """
+        self._assert_holds_lock()
+        self._connected = value
+
+    def _is_connected(self) -> bool:
+        """Read connection flag. Caller should hold _lock or _io_lock."""
+        return self._connected
+
+    def _set_error(self, message: str) -> None:
+        """Set error message.
+
+        Caller must hold _lock (and _io_lock first if both are needed).
+        """
+        self._assert_holds_lock()
+        self._error = message
+
+    def _get_error(self) -> str:
+        """Read error message. Caller should hold _lock or _io_lock."""
+        return self._error
+
+    def _set_closed(self, value: bool) -> None:
+        """Set closed flag.
+
+        Caller must hold _lock (and _io_lock first if both are needed).
+        """
+        self._assert_holds_lock()
+        self._closed = value
+
+    def _is_closed(self) -> bool:
+        """Read closed flag. Caller should hold _lock or _io_lock."""
+        return self._closed
+
+    def _next_rpc_id_locked(self) -> int:
+        """Increment and return the next RPC id.
+
+        Caller must hold _lock (and _io_lock first if both are needed).
+        """
+        self._assert_holds_lock()
+        rpc_id = self._next_rpc_id
+        self._next_rpc_id += 1
+        return rpc_id
+
+    # Websocket helpers (require _io_lock, and _io_lock must be taken before _lock).
+    def _set_ws(self, ws: ClientConnection | None) -> None:
+        """Set websocket connection. Caller must hold _io_lock."""
+        self._assert_holds_io_lock()
+        self._ws = ws
+
+    def _get_ws(self) -> ClientConnection | None:
+        """Get websocket connection. Caller should hold _io_lock."""
+        return self._ws
 
     def _extract_status_code(self, exc: BaseException) -> int | None:
         """Try to extract a numeric status code from a known exception shape.
@@ -114,35 +255,52 @@ class TrueNASAPI:
         return None
 
     def _get_connection_error(self, exception: Exception) -> str | None:
-        if isinstance(exception, ssl.SSLCertVerificationError):
-            return ERR_CERT_VERIFY_FAILED
-        if isinstance(exception, socket.gaierror):
-            return ERR_UNKNOWN_HOSTNAME
-        if isinstance(exception, ConnectionRefusedError):
-            return ERR_CONNECTION_REFUSED
-        if isinstance(exception, TimeoutError):
-            return ERR_HANDSHAKE_TIMEOUT
+        # 1. Evaluate by exception type
+        match exception:
+            case ssl.SSLCertVerificationError():
+                return ERR_CERT_VERIFY_FAILED
 
-        # Structured / errno-based handling where available
-        if (
-            isinstance(exception, OSError)
-            and getattr(exception, "errno", None) is not None
-        ):
-            if exception.errno == errno.ECONNREFUSED:
+            case socket.gaierror():
+                err_no = getattr(exception, "errno", None)
+                eai_noname = getattr(socket, "EAI_NONAME", None)
+                eai_nodata = getattr(socket, "EAI_NODATA", None)
+                if err_no is not None and err_no in {eai_noname, eai_nodata}:
+                    return ERR_UNKNOWN_HOSTNAME
+
+            case ConnectionRefusedError():
                 return ERR_CONNECTION_REFUSED
-            if exception.errno == errno.ETIMEDOUT:
+
+            case TimeoutError():
                 return ERR_HANDSHAKE_TIMEOUT
-            if exception.errno == getattr(errno, "EHOSTUNREACH", None):
-                return ERR_CONNECTION_REFUSED
 
-        status = self._extract_status_code(exception)
-        if status in (401, 403):
-            return ERR_INVALID_KEY
-        if status == 404:
-            return ERR_API_NOT_FOUND
+            case OSError() if getattr(exception, "errno", None) is not None:
+                match exception.errno:
+                    case errno.ECONNREFUSED:
+                        return ERR_CONNECTION_REFUSED
+                    case errno.ETIMEDOUT:
+                        return ERR_HANDSHAKE_TIMEOUT
+                    case err if err == getattr(errno, "EHOSTUNREACH", None):
+                        return ERR_CONNECTION_REFUSED
 
-        msg = str(exception)
-        normalized = msg.strip().lower()
+        # 2. Evaluate by HTTP status code
+        match self._extract_status_code(exception):
+            case 401 | 403:
+                return ERR_INVALID_KEY
+            case 404:
+                return ERR_API_NOT_FOUND
+
+        # 3. Evaluate by text contents (fallback string matching)
+        #
+        # WARNING:
+        # This fallback logic is deliberately bound to specific text fragments
+        # of the exception messages (e.g. from websockets, SSL, or socket stack).
+        # Changes in library versions or localization of these messages
+        # can cause this matching to break.
+        # If structured information (error codes, specific exception types, etc.)
+        # becomes available in the future, prefer that over string matching.
+        #
+        # For unknown or non-matching cases, there is a safe default fallback below.
+        normalized = str(exception).strip().lower()
 
         if "certificate_verify_failed" in normalized:
             return ERR_CERT_VERIFY_FAILED
@@ -152,14 +310,13 @@ class TrueNASAPI:
             return ERR_TLS_NOT_SUPPORTED
         if "no websocket upgrade" in normalized:
             return ERR_WS_NOT_SUPPORTED
-        if "connection refused" in normalized:
-            return ERR_CONNECTION_REFUSED
-        if "no route to host" in normalized:
+        if "connection refused" in normalized or "no route to host" in normalized:
             return ERR_CONNECTION_REFUSED
         if "timed out while waiting for handshake response" in normalized:
             return ERR_HANDSHAKE_TIMEOUT
 
-        return None
+        # Safe fallback for unrecognized error texts.
+        return ERR_UNKNOWN
 
     def _log_error(
         self,
@@ -210,8 +367,8 @@ class TrueNASAPI:
 
         if not isinstance(error, dict):
             with self._lock:
-                self._error = str(error)
-            _LOGGER.error("TrueNAS %s API error: %s", self._host, error)
+                self._set_error(str(error))
+            _LOGGER.error(ERROR_API_FORMAT, self._host, error)
             return True
 
         err_message = error.get("message")
@@ -219,24 +376,24 @@ class TrueNASAPI:
         reason = data.get("reason") if isinstance(data, dict) else None
 
         with self._lock:
-            self._error = reason or err_message or ERR_UNKNOWN
+            self._set_error(reason or err_message or ERR_UNKNOWN)
 
         if err_message and reason:
             _LOGGER.error(
-                "TrueNAS %s API error: %s (%s)",
+                ERROR_API_FORMAT,
                 self._host,
                 err_message,
                 reason,
             )
         elif err_message:
             _LOGGER.error(
-                "TrueNAS %s API error: %s",
+                ERROR_API_FORMAT,
                 self._host,
                 err_message,
             )
         else:
             _LOGGER.error(
-                "TrueNAS %s API error: %s",
+                ERROR_API_FORMAT,
                 self._host,
                 error,
             )
@@ -258,10 +415,10 @@ class TrueNASAPI:
             try:
                 return connect(self._url, **kwargs)
             except NegotiationError as e2:
-                return self._handle_negotiation_error(e, e2, kwargs)
+                return self._handle_negotiation_error(e2, kwargs)
 
     def _handle_negotiation_error(
-        self, e: Exception, e2: NegotiationError, kwargs: dict[str, Any]
+        self, e2: NegotiationError, kwargs: dict[str, Any]
     ) -> ClientConnection:
         """Extract the expected subprotocol and retry the connection."""
         msg2 = str(e2)
@@ -272,13 +429,12 @@ class TrueNASAPI:
         marker = "unsupported subprotocol: "
         parts = msg2.split(marker, 1)
         if len(parts) < 2:
-            _LOGGER.warning(
+            return self._fallback_negotiation_retry(
                 "Failed to parse NegotiationError subprotocol (missing '%s'): %s",
                 marker,
                 msg2,
+                kwargs,
             )
-            raise e2 from e
-
         tail = parts[1].strip()
         # Strip at common delimiters to avoid feeding arbitrary or composite
         # values back into connect. This keeps only the first token-like value.
@@ -288,19 +444,25 @@ class TrueNASAPI:
 
         subp = tail
         if not subp or not re.match(r"^[a-zA-Z0-9_\-\.]+$", subp):
-            _LOGGER.warning(
+            return self._fallback_negotiation_retry(
                 "Extracted NegotiationError subprotocol is invalid: %r (msg: %s)",
                 subp,
                 msg2,
+                kwargs,
             )
-            raise e2 from e
-
         kwargs["subprotocols"] = [subp]
+        return connect(self._url, **kwargs)
+
+    def _fallback_negotiation_retry(
+        self, log_msg: str, arg: str, error_msg: str, kwargs: dict[str, Any]
+    ) -> Any:
+        """Handle fallback for negotiation protocol errors."""
+        _LOGGER.warning(log_msg, arg, error_msg)
+        kwargs.pop("subprotocols", None)
         return connect(self._url, **kwargs)
 
     def _wait_for_message(
         self,
-        ws: ClientConnection,
         match_key: str,
         match_val: str,
         timeout_msg: str,
@@ -309,6 +471,7 @@ class TrueNASAPI:
     ) -> dict[str, Any] | None:
         """Wait for a specific message from WebSocket.
 
+        All websocket I/O goes through _recv_locked().
         Note: The caller holds _io_lock, ensuring no concurrent RPCs are in flight.
         Any unmatched messages are unsolicited server events and can be safely ignored.
         """
@@ -318,12 +481,25 @@ class TrueNASAPI:
             try:
                 if timeout <= 0:
                     raise TimeoutError
-                message = ws.recv(timeout=timeout)
+                message = self._recv_locked(timeout=timeout)
             except TimeoutError as e:
                 self._fail_connection(timeout_msg, e, error_state)
                 return None
 
+            # Handle binary / non-text messages: emit a one-time warning and skip
             if not isinstance(message, str):
+                if not self._binary_warning_logged:
+                    _LOGGER.warning(
+                        "Received non-text WebSocket message from TrueNAS; "
+                        "binary frames are ignored. This may indicate a protocol "
+                        "or configuration change."
+                    )
+                    self._binary_warning_logged = True
+                _LOGGER.debug(
+                    "TrueNAS %s: ignoring non-string WebSocket message: %r",
+                    self._host,
+                    message,
+                )
                 continue
 
             try:
@@ -344,55 +520,36 @@ class TrueNASAPI:
             )
 
     def _log_login_failure(self, result: dict) -> None:
-        """Extract and log login failure details."""
+        """Extract and log login failure details efficiently."""
         error_reason = result.get("reason")
         error_message = result.get("message")
 
         if not error_reason or not error_message:
-            error_obj = result.get("error") or result.get("errors")
-            if isinstance(error_obj, dict):
-                error_reason = (
-                    error_reason or error_obj.get("reason") or error_obj.get("code")
-                )
-                error_message = (
-                    error_message or error_obj.get("message") or error_obj.get("detail")
-                )
-            elif (
-                isinstance(error_obj, list)
-                and error_obj
-                and isinstance(error_obj[0], dict)
-            ):
-                error_reason = (
-                    error_reason
-                    or error_obj[0].get("reason")
-                    or error_obj[0].get("code")
-                )
-                error_message = (
-                    error_message
-                    or error_obj[0].get("message")
-                    or error_obj[0].get("detail")
-                )
+            match result.get("error") or result.get("errors"):
+                case dict() as err_obj:
+                    error_reason = (
+                        error_reason or err_obj.get("reason") or err_obj.get("code")
+                    )
+                    error_message = (
+                        error_message or err_obj.get("message") or err_obj.get("detail")
+                    )
+                case [dict() as first_err, *_] if first_err:
+                    error_reason = (
+                        error_reason or first_err.get("reason") or first_err.get("code")
+                    )
+                    error_message = (
+                        error_message
+                        or first_err.get("message")
+                        or first_err.get("detail")
+                    )
 
         response_type = (
             result.get("response_type") if isinstance(result, dict) else None
         )
 
-        if error_reason or error_message or response_type:
+        if not (error_reason or error_message or response_type):
             _LOGGER.warning(
-                "TrueNAS login failed for %s. Check API key and permissions.",
-                self._host,
-            )
-            _LOGGER.debug(
-                "TrueNAS login failure details for %s: response_type=%s, %s%s",
-                self._host,
-                response_type,
-                f"{error_reason}: " if error_reason else "",
-                error_message or "",
-            )
-        else:
-            _LOGGER.warning(
-                "TrueNAS login failed for %s with non-success response.",
-                self._host,
+                "TrueNAS login failed for %s with non-success response.", self._host
             )
             res_str = str(result)
             _LOGGER.debug(
@@ -400,41 +557,64 @@ class TrueNASAPI:
                 self._host,
                 f"{res_str[:250]}..." if len(res_str) > 250 else res_str,
             )
+            return
+
+        # Complexity fix: Build the log string flat in advance
+        reason_prefix = f"{error_reason}: " if error_reason else ""
+        details_msg = f"{reason_prefix}{error_message or ''}"
+
+        _LOGGER.warning(
+            "TrueNAS login failed for %s. Check API key and permissions.", self._host
+        )
+        _LOGGER.debug(
+            "TrueNAS login failure details for %s: response_type=%s, %s",
+            self._host,
+            response_type,
+            details_msg,
+        )
 
     # ---------------------------
     #   _perform_login
     # ---------------------------
     def _perform_login(self, error_state: dict) -> bool:
-        """Perform login and return boolean success."""
+        """Perform login and return boolean success.
+
+        This method is responsible for acquiring ``_io_lock`` for all
+        login-related I/O. Callers MUST NOT hold ``_io_lock`` when invoking
+        this method.
+        """
         with self._lock:
-            rpc_id = self._next_rpc_id
-            self._next_rpc_id += 1
-            ws = self._ws
+            rpc_id = self._next_rpc_id_locked()
+
+        with self._lock:
+            ws = self._get_ws()
 
         if not ws:
+            # Set error instead of silently aborting
+            with self._lock:
+                self._set_error(ERR_UNKNOWN)
             return False
 
         with self._io_lock:
             # Acquire _lock inside _io_lock (following lock ordering)
             with self._lock:
-                if self._ws is not ws:
-                    self._error = ERR_LOST_LOGIN
+                if self._get_ws() is not ws:
+                    self._set_error(ERR_LOST_LOGIN)
                     _LOGGER.warning(
                         "TrueNAS %s WebSocket changed mid-login", self._host
                     )
                     return False
 
             try:
-                ws.send(
+                self._send_locked(
                     json.dumps({"msg": "connect", "version": "1", "support": ["1"]})
                 )
-            except (OSError, TimeoutError, WebSocketException) as e:
+            except (OSError, WebSocketException) as e:
                 return self._fail_connection(
                     "failed to send connect message", e, error_state
                 )
 
             if not self._wait_for_message(
-                ws,
                 "msg",
                 "connected",
                 "timeout while waiting for connect response",
@@ -451,14 +631,13 @@ class TrueNASAPI:
             }
 
             try:
-                ws.send(json.dumps(payload))
-            except (OSError, TimeoutError, WebSocketException) as e:
+                self._send_locked(json.dumps(payload))
+            except (OSError, WebSocketException) as e:
                 return self._fail_connection(
                     "failed to send login message", e, error_state
                 )
 
             res = self._wait_for_message(
-                ws,
                 "id",
                 str(rpc_id),
                 "timeout while waiting for login response",
@@ -487,10 +666,49 @@ class TrueNASAPI:
 
         if not connected:
             with self._lock:
-                self._error = ERR_INVALID_KEY
+                self._set_error(ERR_INVALID_KEY)
             self.disconnect()
 
         return connected
+
+    def _handle_connection_exception(
+        self, exception: Exception, error_state: dict
+    ) -> bool:
+        """Handle connection setup exceptions and log the failure."""
+        with self._lock:
+            self._set_error(self._get_connection_error(exception) or ERR_UNKNOWN)
+        self._log_error("failed to connect", exception, logged_flag=error_state)
+        return False
+
+    def _connect_websocket_with_retries(
+        self, kwargs: dict[str, Any], error_state: dict
+    ) -> ClientConnection | None:
+        """Try to connect websocket, with one retry on timeout.
+
+        TrueNAS may briefly hold a connection slot open after a clean close
+        (e.g. during an integration reload). 5 s matches the delay that has
+        been observed to reliably let TrueNAS finish its internal cleanup
+        before accepting a new connection.
+        """
+        _TIMEOUT_RETRY_DELAY = 5.0
+        for attempt in range(2):
+            try:
+                return self._establish_websocket(kwargs)
+            except TimeoutError as e:
+                if attempt != 0:
+                    self._handle_connection_exception(e, error_state)
+                    return None
+                _LOGGER.debug(
+                    "TrueNAS %s: WebSocket handshake timed out on first attempt; "
+                    "retrying in %.0fs (server may be briefly at connection limit)",
+                    self._host,
+                    _TIMEOUT_RETRY_DELAY,
+                )
+                time.sleep(_TIMEOUT_RETRY_DELAY)
+            except (OSError, WebSocketException) as e:
+                self._handle_connection_exception(e, error_state)
+                return None
+        return None
 
     # ---------------------------
     #   connect
@@ -498,11 +716,11 @@ class TrueNASAPI:
     def connect(self) -> bool:
         """Return connected boolean."""
         with self._lock:
-            if self._connected:
+            if self._is_connected():
                 return True
-            if self._closed:
+            if self._is_closed():
                 return False
-            self._error = ""
+            self._set_error("")
             self._error_logged = False
 
         error_state = {"logged": False}
@@ -515,45 +733,19 @@ class TrueNASAPI:
         if self._scheme == "wss":
             kwargs["ssl"] = self._ssl_context
 
-        # Retry once on handshake timeout: TrueNAS may briefly hold a connection
-        # slot open after a clean close (e.g. during an integration reload).
-        # 5 s matches the delay that has been observed to reliably let TrueNAS
-        # finish its internal cleanup before accepting a new connection.
-        _TIMEOUT_RETRY_DELAY = 5.0
-        ws = None
-        for attempt in range(2):
-            try:
-                ws = self._establish_websocket(kwargs)
-                break
-            except TimeoutError as e:
-                if attempt == 0:
-                    _LOGGER.debug(
-                        "TrueNAS %s: WebSocket handshake timed out on first attempt; "
-                        "retrying in %.0fs (server may be briefly at connection limit)",
-                        self._host,
-                        _TIMEOUT_RETRY_DELAY,
-                    )
-                    time.sleep(_TIMEOUT_RETRY_DELAY)
-                else:
-                    with self._lock:
-                        self._error = self._get_connection_error(e) or ERR_UNKNOWN
-                    self._log_error("failed to connect", e, logged_flag=error_state)
-                    return False
-            except (OSError, WebSocketException) as e:
-                with self._lock:
-                    self._error = self._get_connection_error(e) or ERR_UNKNOWN
-                self._log_error("failed to connect", e, logged_flag=error_state)
-                return False
-
+        ws = self._connect_websocket_with_retries(kwargs, error_state)
         if ws is None:
             return False
 
-        with self._lock:
-            self._ws = ws
+        # Prepare state for the new websocket connection.
+        # We do not hold _io_lock here; _perform_login manages it.
+        with self._io_lock:
+            with self._lock:
+                self._set_ws(ws)
 
         try:
             connected = self._perform_login(error_state)
-        except (OSError, TimeoutError, WebSocketException) as e:
+        except (OSError, WebSocketException) as e:
             return self._fail_connection("failed to login", e, error_state)
 
         if not connected:
@@ -561,7 +753,7 @@ class TrueNASAPI:
             return False
 
         with self._lock:
-            self._connected = True
+            self._set_connected(True)
             return True
 
     # ---------------------------
@@ -569,10 +761,11 @@ class TrueNASAPI:
     # ---------------------------
     def disconnect(self) -> None:
         """Close the WebSocket connection."""
-        with self._lock:
-            ws = self._ws
-            self._ws = None
-            self._connected = False
+        with self._io_lock:
+            with self._lock:
+                ws = self._get_ws()
+                self._set_ws(None)
+                self._set_connected(False)
 
         if ws:
             try:
@@ -586,7 +779,7 @@ class TrueNASAPI:
     def close(self) -> None:
         """Permanently close the API and prevent reconnection."""
         with self._lock:
-            self._closed = True
+            self._set_closed(True)
         self.disconnect()
 
     # ---------------------------
@@ -603,7 +796,7 @@ class TrueNASAPI:
     def connected(self) -> bool:
         """Return connected boolean."""
         with self._lock:
-            return self._connected
+            return self._is_connected()
 
     # ---------------------------
     #   connection_test
@@ -612,78 +805,128 @@ class TrueNASAPI:
         """Test connection."""
         if not self.connect():
             with self._lock:
-                return self._connected, self._error
+                return self._is_connected(), self._get_error()
 
         try:
             result = self.query("system.info")
-        except (OSError, TimeoutError, WebSocketException) as exc:
+        except (OSError, WebSocketException) as exc:
             with self._lock:
-                self._connected = False
-                self._error = self._get_connection_error(exc) or ERR_UNKNOWN
-                return self._connected, self._error
+                self._set_connected(False)
+                self._set_error(self._get_connection_error(exc) or ERR_UNKNOWN)
+                return self._is_connected(), self._get_error()
 
         if result is None:
             self.disconnect()
             with self._lock:
-                self._connected = False
-                if not self._error:
-                    self._error = ERR_MALFORMED_RESULT
+                self._set_connected(False)
+                if not self._get_error():
+                    self._set_error(ERR_MALFORMED_RESULT)
 
         with self._lock:
-            return self._connected, self._error
+            return self._is_connected(), self._get_error()
 
     # ---------------------------
     #   query
     # ---------------------------
+    def _parse_websocket_message(
+        self, message: str, rpc_id: int
+    ) -> dict[str, Any] | None:
+        """Helper: Validate and filter a single WebSocket message."""
+        if not isinstance(message, str):
+            if not self._binary_warning_logged:
+                _LOGGER.warning(
+                    "Received non-text WebSocket message; binary frames are ignored."
+                )
+                self._binary_warning_logged = True
+            _LOGGER.debug("Ignoring non-text WebSocket message: %r", message)
+            return None
+
+        try:
+            candidate = json.loads(message)
+        except json.JSONDecodeError as exc:
+            _LOGGER.debug(
+                "TrueNAS %s: ignoring malformed JSON: %r (%s)", self._host, message, exc
+            )
+            return None
+
+        # Spam protection: Filter frequent event messages directly
+        if candidate.get("msg") == "event":
+            return None
+
+        # Success: RPC ID matches
+        if str(candidate.get("id")) == str(rpc_id):
+            return candidate
+
+        return {"_unrelated": True, "id": candidate.get("id")}
+
+    def _read_query_response(self, rpc_id: int) -> dict[str, Any] | None:
+        """Wait for and filter WebSocket messages matching the RPC ID."""
+        deadline = time.time() + QUERY_TIMEOUT
+
+        while True:
+            timeout = deadline - time.time()
+            try:
+                if timeout <= 0:
+                    raise TimeoutError
+                message = self._recv_locked(timeout=timeout)
+            except TimeoutError:
+                _LOGGER.error(
+                    "TrueNAS %s timeout while waiting for query response",
+                    self._host,
+                )
+                with self._lock:
+                    self._set_error(ERR_TIMEOUT)
+                self.disconnect()
+                return None
+
+            res = self._parse_websocket_message(message, rpc_id)
+            if not res:
+                continue
+
+            # If it was an unrelated ID, skip it silently
+            if res.get("_unrelated"):
+                continue
+
+            return res
+
     def query(
         self,
         service: str,
         params: dict[str, Any] | list[Any] | None = None,
     ) -> list | dict | str | None:
-        """Retrieve data from TrueNAS.
-
-        Uses _io_lock to ensure only one in-flight RPC exists at a time. Unrelated
-        messages received during the wait are unsolicited events and are ignored.
-        """
-        if params is None:
-            params = []
-
+        """Retrieve data from TrueNAS."""
         if not self.connected() and not self.connect():
             return None
 
-        with self._lock:
-            self._error = ""
-            ws = self._ws
-            if not self._connected or not ws:
+        with self._io_lock, self._lock:
+            self._set_error("")
+            ws = self._get_ws()
+            if not self._is_connected() or not ws:
                 return None
-
-            rpc_id = self._next_rpc_id
-            self._next_rpc_id += 1
+            rpc_id = self._next_rpc_id_locked()
 
         try:
-            _LOGGER.debug(
-                "TrueNAS %s query: %s, %s",
-                self._host,
-                service,
-                params,
-            )
+            _LOGGER.debug("TrueNAS %s query: %s, %s", self._host, service, params)
+
+            # Sonar-Fix (S3358): Flaches, unverschachteltes Statement statt Einzeiler
+            if params is None:
+                clean_params = []
+            elif isinstance(params, list):
+                clean_params = params
+            else:
+                clean_params = [params]
 
             payload = {
                 "msg": "method",
                 "method": service,
                 "id": str(rpc_id),
-                "params": [],
+                "params": clean_params,
             }
-            if params:
-                if not isinstance(params, list):
-                    params = [params]
-                payload["params"] = params
 
             with self._io_lock:
-                # Acquire _lock inside _io_lock (following lock ordering)
                 with self._lock:
-                    if self._ws is not ws:
-                        self._error = ERR_LOST_QUERY
+                    if self._get_ws() is not ws:
+                        self._set_error(ERR_LOST_QUERY)
                         _LOGGER.warning(
                             "TrueNAS %s WebSocket changed mid-query for %s",
                             self._host,
@@ -691,81 +934,31 @@ class TrueNASAPI:
                         )
                         return None
 
-                ws.send(json.dumps(payload))
-
-                res: dict[str, Any] | None = None
-                deadline = time.time() + QUERY_TIMEOUT
-                while True:
-                    timeout = deadline - time.time()
-                    try:
-                        if timeout <= 0:
-                            raise TimeoutError
-                        message = ws.recv(timeout=timeout)
-                    except TimeoutError:
-                        _LOGGER.error(
-                            "TrueNAS %s timeout while waiting for query response",
-                            self._host,
-                        )
-                        with self._lock:
-                            self._error = ERR_TIMEOUT
-                        self.disconnect()
-                        return None
-
-                    if not isinstance(message, str):
-                        _LOGGER.debug(
-                            "TrueNAS %s: ignoring non-string WebSocket message: %r",
-                            self._host,
-                            message,
-                        )
-                        continue
-
-                    try:
-                        candidate = json.loads(message)
-                    except json.JSONDecodeError as exc:
-                        _LOGGER.debug(
-                            "TrueNAS %s: ignoring malformed JSON WebSocket "
-                            "message: %r (%s)",
-                            self._host,
-                            message,
-                            exc,
-                        )
-                        continue
-
-                    if str(candidate.get("id")) != str(rpc_id):
-                        _LOGGER.debug(
-                            "TrueNAS %s: received unrelated WebSocket message "
-                            "(id=%r) while waiting for id=%r: %s",
-                            self._host,
-                            candidate.get("id"),
-                            rpc_id,
-                            candidate,
-                        )
-                        continue
-
-                    res = candidate
-                    break
+                self._send_locked(json.dumps(payload))
+                res = self._read_query_response(rpc_id)
 
             if res is not None and self._handle_query_error(res):
                 return None
 
-            data = res.get("result") if res else None
-            if data is None:
+            # Präzise Prüfung: Erlaubt leere Container wie [] oder {}
+            if res is None or "result" not in res:
                 return None
 
+            data = res.get("result")
             _LOGGER.debug(
                 "TrueNAS %s query (%s) response: %s", self._host, service, data
             )
-        except (OSError, TimeoutError, WebSocketException) as e:
-            # Catch only real system errors, e.g., connection loss
+        except (OSError, WebSocketException) as e:
             _LOGGER.warning(
                 'TrueNAS %s unable to fetch data "%s" (%s)',
                 self._host,
                 service,
                 e,
+                # noqa: G004
             )
             self.disconnect()
             with self._lock:
-                self._error = self._get_connection_error(e) or ERR_UNKNOWN
+                self._set_error(self._get_connection_error(e) or ERR_UNKNOWN)
             return None
 
         return data
@@ -774,7 +967,7 @@ class TrueNASAPI:
     def error(self):
         """Return error."""
         with self._lock:
-            return self._error
+            return self._get_error()
 
     @property
     def scheme(self) -> str:

@@ -1,0 +1,6 @@
+{
+    "sonarlint.connectedMode.project": {
+        "connectionId": "kayl-codes",
+        "projectKey": "kayl-codes_homeassistant-truenas"
+    }
+}
