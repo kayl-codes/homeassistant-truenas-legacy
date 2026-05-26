@@ -1,19 +1,13 @@
-name: 'Check Conflicts'
-
+name: Auto Comment Conflicts
 on:
   push:
-    branches: [ "master", "main" ]
+    branches: [main, master]
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [synchronize, opened]
 
 jobs:
-  check:
+  main:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
     steps:
-      - name: Check for merge conflicts
-        uses: eps1lon/actions-label-merge-conflict@v3
-        with:
-          dirtyLabel: "conflicts"
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Check for conflicts
+        uses: actions/checkout@v4.2.2
