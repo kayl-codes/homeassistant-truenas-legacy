@@ -10,7 +10,7 @@ DOMAIN = "truenas"
 DEFAULT_NAME = "root"
 ATTRIBUTION = "Data provided by TrueNAS integration"
 
-DEFAULT_HOST = "192.168.1.100"
+DEFAULT_HOST = "trueas.local"
 
 # Conversion factor: kilobits per second to kibibytes per second
 # (1000 / 8192 = ~0.12207)
