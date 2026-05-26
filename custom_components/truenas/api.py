@@ -63,8 +63,7 @@ class TrueNASAPI:
         self._url = f"{self._scheme}://{self._host}/websocket"
 
         if self._scheme == "wss":
-            self._ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            self._ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+            self._ssl_context = ssl.create_default_context()
             if verify_ssl:
                 self._ssl_context.check_hostname = True
                 self._ssl_context.verify_mode = ssl.CERT_REQUIRED
@@ -508,20 +507,45 @@ class TrueNASAPI:
 
         error_state = {"logged": False}
 
-        try:
-            kwargs = {
-                "max_size": 16777216,
-                "ping_interval": 20,
-                "open_timeout": 10,
-            }
-            if self._scheme == "wss":
-                kwargs["ssl"] = self._ssl_context
+        kwargs = {
+            "max_size": 16777216,
+            "ping_interval": 20,
+            "open_timeout": 10,
+        }
+        if self._scheme == "wss":
+            kwargs["ssl"] = self._ssl_context
 
-            ws = self._establish_websocket(kwargs)
-        except (OSError, TimeoutError, WebSocketException) as e:
-            with self._lock:
-                self._error = self._get_connection_error(e) or ERR_UNKNOWN
-            self._log_error("failed to connect", e, logged_flag=error_state)
+        # Retry once on handshake timeout: TrueNAS may briefly hold a connection
+        # slot open after a clean close (e.g. during an integration reload).
+        # 5 s matches the delay that has been observed to reliably let TrueNAS
+        # finish its internal cleanup before accepting a new connection.
+        _TIMEOUT_RETRY_DELAY = 5.0
+        ws = None
+        for attempt in range(2):
+            try:
+                ws = self._establish_websocket(kwargs)
+                break
+            except TimeoutError as e:
+                if attempt == 0:
+                    _LOGGER.debug(
+                        "TrueNAS %s: WebSocket handshake timed out on first attempt; "
+                        "retrying in %.0fs (server may be briefly at connection limit)",
+                        self._host,
+                        _TIMEOUT_RETRY_DELAY,
+                    )
+                    time.sleep(_TIMEOUT_RETRY_DELAY)
+                else:
+                    with self._lock:
+                        self._error = self._get_connection_error(e) or ERR_UNKNOWN
+                    self._log_error("failed to connect", e, logged_flag=error_state)
+                    return False
+            except (OSError, WebSocketException) as e:
+                with self._lock:
+                    self._error = self._get_connection_error(e) or ERR_UNKNOWN
+                self._log_error("failed to connect", e, logged_flag=error_state)
+                return False
+
+        if ws is None:
             return False
 
         with self._lock:
