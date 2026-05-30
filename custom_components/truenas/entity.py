@@ -156,10 +156,12 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         super()._handle_coordinator_update()
 
     @property
-    def name(self) -> str:
+    def name(self) -> str | None:
         """Return the name for this entity."""
         if not self._uid:
-            return f"{self.entity_description.name}"
+            # Return the raw name (may be None) so an entity without its own
+            # name falls back to the device name instead of showing "None".
+            return self.entity_description.name
 
         data_value = None
         if self._data is not None and getattr(

@@ -28,6 +28,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# TrueNAS reporting (netdata) API method names.
+_NETDATA_GRAPH = "reporting.netdata_graph"
+_NETDATA_GRAPHS = "reporting.netdata_graphs"
+
 
 # ---------------------------
 #   _stat_name_similar
@@ -141,10 +145,7 @@ def _ups_value(graph_data: Any) -> float | None:
 
     mean = item.get("aggregations", {}).get("mean", {})
     values = [v for v in mean.values() if isinstance(v, (int, float))]
-    if not values:
-        return None
-
-    return round(sum(values) / len(values), 2)
+    return None if not values else round(sum(values) / len(values), 2)
 
 
 # ---------------------------
@@ -605,7 +606,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _fetch_stat_graphs(self, graph_names: list[str], graph_query: dict) -> list:
         """Query each stat graph, returning combined data and tracking failures."""
-        reporting_path = "reporting.netdata_graph"
+        reporting_path = _NETDATA_GRAPH
         tmp_graph: list = []
         failed_graphs: list[str] = []
 
@@ -1279,7 +1280,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "aggregate": True,
         }
         graph_data = self.api.query(
-            "reporting.netdata_graph",
+            _NETDATA_GRAPH,
             params=[self._disk_temp_graph, graph_query],
         )
         if not isinstance(graph_data, list):
@@ -1293,7 +1294,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _discover_disk_temp_graph(self) -> str:
         """Find the netdata graph name that reports disk temperatures."""
-        graphs = self.api.query("reporting.netdata_graphs")
+        graphs = self.api.query(_NETDATA_GRAPHS)
         if not isinstance(graphs, list):
             return ""
 
@@ -1437,7 +1438,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if graph_name not in self._ups_graphs:
                 continue
             graph_data = self.api.query(
-                "reporting.netdata_graph",
+                _NETDATA_GRAPH,
                 params=[graph_name, graph_query],
             )
             value = _ups_value(graph_data)
@@ -1452,7 +1453,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Returns an empty set when no UPS graphs exist (no UPS configured) and
         ``None`` when the graph list could not be fetched (so it is retried).
         """
-        graphs = self.api.query("reporting.netdata_graphs")
+        graphs = self.api.query(_NETDATA_GRAPHS)
         if not isinstance(graphs, list):
             return None
 
