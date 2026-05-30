@@ -145,7 +145,7 @@ def _ups_value(graph_data: Any) -> float | None:
 
     mean = item.get("aggregations", {}).get("mean", {})
     values = [v for v in mean.values() if isinstance(v, (int, float))]
-    return round(sum(values) / len(values), 2) if values else None
+    return None if not values else round(sum(values) / len(values), 2)
 
 
 # ---------------------------
@@ -668,7 +668,8 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif name == "memory":
             self._process_memory_stat(item)
         elif name == "arcsize":
-            self._systemstats_process("arc_size", item, "arcsize")
+            # netdata exposes the ARC value under the "size" series, not "arc_size".
+            self._systemstats_process("size", item, "arcsize")
         else:
             self._handle_unknown_stat(name)
 
@@ -965,15 +966,22 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _apply_pool_capacity(
         self, uid: str, vals: dict[str, Any], root_dataset: dict[str, Any] | None
     ) -> None:
-        """Set available/total/usage for a single pool.
+        """Set available/total/usage (and size/allocated) for a single pool.
 
         Prefers the root dataset's available/used values (matching the figures
         shown in the TrueNAS UI) and falls back to the pool's own free/size
         fields when no root dataset is available (e.g. boot-pool).
+
+        When the root dataset is used, size/allocated are overwritten with the
+        usable figures too, so they match the UI for parity layouts (raidz)
+        instead of the raw pool.query capacity that counts parity disks.
         """
         if root_dataset:
             available = root_dataset.get("available", 0)
-            total = available + root_dataset.get("used", 0)
+            used = root_dataset.get("used", 0)
+            total = available + used
+            self.ds["pool"][uid]["size"] = total
+            self.ds["pool"][uid]["allocated"] = used
         else:
             available = vals.get("free") or 0
             total = vals.get("size") or (
