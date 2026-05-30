@@ -48,6 +48,56 @@ def format_unique_id(inst: str, key: str, reference: object = None) -> str:
 # ---------------------------
 #   async_add_entities
 # ---------------------------
+async def _async_ensure_entity(platform, hass: HomeAssistant, obj) -> None:
+    """Add the entity if it is not already registered/loaded."""
+    entity_registry = er.async_get(hass)
+    unique_id = obj.unique_id
+    entity_id = entity_registry.async_get_entity_id(platform.domain, DOMAIN, unique_id)
+
+    if entity_id is None:
+        _LOGGER.debug("Add entity %s", unique_id)
+        await platform.async_add_entities([obj])
+        return
+
+    entity = entity_registry.async_get(entity_id)
+    if entity is None or (
+        entity_id not in platform.entities
+        and getattr(entity, "disabled_by", None) is None
+    ):
+        _LOGGER.debug("Add entity %s", entity_id)
+        await platform.async_add_entities([obj])
+
+
+def _skip_keyless_description(entity_description, data) -> bool:
+    """Return True if a keyless description has no value to expose."""
+    attr_name = getattr(
+        entity_description,
+        "data_attribute",
+        getattr(entity_description, "data_is_on", None),
+    )
+    return bool(attr_name) and data.get(attr_name) is None
+
+
+async def _async_create_entities(
+    platform, hass: HomeAssistant, coordinator, descriptions, dispatcher
+) -> None:
+    """Create and register the entities for every applicable description."""
+    for entity_description in descriptions:
+        data = coordinator.data.get(entity_description.data_path)
+        if data is None:
+            continue
+
+        if entity_description.data_reference:
+            for uid in data:
+                obj = dispatcher[entity_description.func](
+                    coordinator, entity_description, uid
+                )
+                await _async_ensure_entity(platform, hass, obj)
+        elif not _skip_keyless_description(entity_description, data):
+            obj = dispatcher[entity_description.func](coordinator, entity_description)
+            await _async_ensure_entity(platform, hass, obj)
+
+
 async def async_add_entities(
     hass: HomeAssistant, config_entry: ConfigEntry, dispatcher: dict[str, Callable]
 ):
@@ -63,52 +113,9 @@ async def async_add_entities(
 
     async def async_update_controller(coordinator):
         """Update the values of the controller."""
-
-        async def async_check_exist(obj) -> None:
-            """Check entity exists."""
-            entity_registry = er.async_get(hass)
-            unique_id = obj.unique_id
-
-            entity_id = entity_registry.async_get_entity_id(
-                platform.domain, DOMAIN, unique_id
-            )
-
-            if entity_id is None:
-                _LOGGER.debug("Add entity %s", unique_id)
-                await platform.async_add_entities([obj])
-                return
-
-            entity = entity_registry.async_get(entity_id)
-            if entity is None or (
-                entity_id not in platform.entities
-                and getattr(entity, "disabled_by", None) is None
-            ):
-                _LOGGER.debug("Add entity %s", entity_id)
-                await platform.async_add_entities([obj])
-
-        for entity_description in descriptions:
-            data = coordinator.data.get(entity_description.data_path)
-            if data is None:
-                continue
-
-            if not entity_description.data_reference:
-                attr_name = getattr(
-                    entity_description,
-                    "data_attribute",
-                    getattr(entity_description, "data_is_on", None),
-                )
-                if attr_name and data.get(attr_name) is None:
-                    continue
-                obj = dispatcher[entity_description.func](
-                    coordinator, entity_description
-                )
-                await async_check_exist(obj)
-            else:
-                for uid in data:
-                    obj = dispatcher[entity_description.func](
-                        coordinator, entity_description, uid
-                    )
-                    await async_check_exist(obj)
+        await _async_create_entities(
+            platform, hass, coordinator, descriptions, dispatcher
+        )
 
     await async_update_controller(hass.data[DOMAIN][config_entry.entry_id])
 
@@ -215,10 +222,8 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
                 connection_val = self._data.get(data_key, "unknown")
                 dev_connection_value = f"{self._inst}_{connection_val}"
 
-        api_scheme = self.coordinator.api.scheme
-        http_scheme = "https" if api_scheme == "wss" else "http"
-
         if self.entity_description.ha_group == "System":
+            http_scheme = "https" if self.coordinator.api.scheme == "wss" else "http"
             return DeviceInfo(
                 connections={(dev_connection, f"{dev_connection_value}")},
                 identifiers={(dev_connection, f"{dev_connection_value}")},
@@ -228,17 +233,17 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
                 sw_version=f"{self.coordinator.data['system_info']['version']}",
                 configuration_url=f"{http_scheme}://{self.coordinator.config_entry.data[CONF_HOST]}",
             )
-        else:
-            return DeviceInfo(
-                connections={(dev_connection, f"{dev_connection_value}")},
-                default_name=f"{self._inst} {dev_group}",
-                default_model=f"{self.coordinator.data['system_info']['system_product']}",
-                default_manufacturer=f"{self.coordinator.data['system_info']['system_manufacturer']}",
-                via_device=(
-                    DOMAIN,
-                    f"{self._inst}_{self.coordinator.data['system_info']['hostname']}",
-                ),
-            )
+
+        return DeviceInfo(
+            connections={(dev_connection, f"{dev_connection_value}")},
+            default_name=f"{self._inst} {dev_group}",
+            default_model=f"{self.coordinator.data['system_info']['system_product']}",
+            default_manufacturer=f"{self.coordinator.data['system_info']['system_manufacturer']}",
+            via_device=(
+                DOMAIN,
+                f"{self._inst}_{self.coordinator.data['system_info']['hostname']}",
+            ),
+        )
 
     @property
     def extra_state_attributes(self) -> Mapping[str, Any]:

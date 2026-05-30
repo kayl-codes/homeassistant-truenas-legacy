@@ -145,7 +145,7 @@ def _ups_value(graph_data: Any) -> float | None:
 
     mean = item.get("aggregations", {}).get("mean", {})
     values = [v for v in mean.values() if isinstance(v, (int, float))]
-    return None if not values else round(sum(values) / len(values), 2)
+    return round(sum(values) / len(values), 2) if values else None
 
 
 # ---------------------------
