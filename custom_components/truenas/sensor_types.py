@@ -36,6 +36,10 @@ from .const import (
     SERVICE_SYSTEM_SHUTDOWN,
 )
 
+# Icons reused by several entity descriptions.
+ICON_MEMORY = "mdi:memory"
+ICON_DATABASE_SETTINGS = "mdi:database-settings"
+
 DEVICE_ATTRIBUTES_NETWORK = (
     "description",
     "mtu",
@@ -302,7 +306,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="system_memory_usage",
         name="Memory usage",
-        icon="mdi:memory",
+        icon=ICON_MEMORY,
         native_unit_of_measurement=PERCENTAGE,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -318,7 +322,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="system_cache_size-arc_value",
         name="ARC size",
-        icon="mdi:memory",
+        icon=ICON_MEMORY,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIBIBYTES,
         suggested_display_precision=1,
@@ -335,7 +339,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="system_memory_total",
         name="Memory total",
-        icon="mdi:memory",
+        icon=ICON_MEMORY,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIBIBYTES,
         suggested_display_precision=1,
@@ -353,7 +357,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="system_memory_free",
         name="Memory free",
-        icon="mdi:memory",
+        icon=ICON_MEMORY,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIBIBYTES,
         suggested_display_precision=1,
@@ -408,7 +412,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="pool_free",
         name="free",
-        icon="mdi:database-settings",
+        icon=ICON_DATABASE_SETTINGS,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIBIBYTES,
         suggested_display_precision=0,
@@ -426,7 +430,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="pool_size",
         name="size",
-        icon="mdi:database-settings",
+        icon=ICON_DATABASE_SETTINGS,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIBIBYTES,
         suggested_display_precision=0,
@@ -444,7 +448,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
     TrueNASSensorEntityDescription(
         key="pool_allocated",
         name="allocated",
-        icon="mdi:database-settings",
+        icon=ICON_DATABASE_SETTINGS,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIBIBYTES,
         suggested_display_precision=0,
