@@ -5,10 +5,7 @@ from datetime import datetime
 from logging import getLogger
 from typing import Any, TypedDict
 
-from homeassistant.components.diagnostics import async_redact_data
 from pytz import utc
-
-from .const import TO_REDACT
 
 _LOGGER = getLogger(__name__)
 
@@ -19,6 +16,17 @@ MILLIS_TIMESTAMP_THRESHOLD: int = 100_000_000_000
 Values greater than this are assumed to be in milliseconds and will be divided by 1000
 before conversion.
 """
+
+# Sentinel marking a source value that could not be resolved (distinct from None,
+# which can be a legitimate value in the API payload).
+_MISSING = object()
+
+# String tokens treated as booleans by from_entry_bool.
+_BOOL_TRUE_VALUES = {"on", "yes", "up", "true", "1"}
+_BOOL_FALSE_VALUES = {"off", "no", "down", "false", "0"}
+
+# Actions supported by fill_vals_proc.
+_SUPPORTED_VALS_PROC_ACTIONS = {"combine"}
 
 
 # ---------------------------
@@ -41,7 +49,24 @@ class ApiValueSpec(TypedDict, total=False):
 # ---------------------------
 def utc_from_timestamp(timestamp: float) -> datetime:
     """Return a UTC time from a timestamp."""
-    return utc.localize(datetime.utcfromtimestamp(timestamp))
+    return datetime.fromtimestamp(timestamp, tz=utc)
+
+
+# ---------------------------
+#   _resolve_source
+# ---------------------------
+def _resolve_source(entry: dict[str, Any] | None, param: str) -> Any:
+    """Resolve param (supporting '/'-nested paths) or return _MISSING."""
+    if "/" not in param:
+        return entry[param] if isinstance(entry, dict) and param in entry else _MISSING
+
+    current: Any = entry
+    for tmp_param in param.split("/"):
+        if isinstance(current, dict) and tmp_param in current:
+            current = current[tmp_param]
+        else:
+            return _MISSING
+    return current
 
 
 # ---------------------------
@@ -55,20 +80,8 @@ def from_entry(
     round_digits: int | None = None,
 ) -> Any:
     """Validate and return value from an API dict."""
-    if entry is None:
-        return default
-
-    if "/" in param:
-        current: Any = entry
-        for tmp_param in param.split("/"):
-            if isinstance(current, dict) and tmp_param in current:
-                current = current[tmp_param]
-            else:
-                return default
-        ret: Any = current
-    elif isinstance(entry, dict) and param in entry:
-        ret = entry[param]
-    else:
+    ret = _resolve_source(entry, param)
+    if ret is _MISSING:
         return default
 
     if isinstance(ret, float) and round_digits is not None:
@@ -80,34 +93,54 @@ def from_entry(
 
 
 # ---------------------------
+#   _coerce_bool
+# ---------------------------
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Coerce a resolved value into a bool, falling back to default."""
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in _BOOL_TRUE_VALUES:
+            return True
+        if normalized in _BOOL_FALSE_VALUES:
+            return False
+
+    return value if isinstance(value, bool) else default
+
+
+# ---------------------------
 #   from_entry_bool
 # ---------------------------
 def from_entry_bool(entry, param, default=False, reverse=False) -> bool:
     """Validate and return a bool value from an API dict."""
-    if "/" in param:
-        for tmp_param in param.split("/"):
-            if isinstance(entry, dict) and tmp_param in entry:
-                entry = entry[tmp_param]
-            else:
-                return default
-
-        ret = entry
-    elif isinstance(entry, dict) and param in entry:
-        ret = entry[param]
-    else:
+    ret = _resolve_source(entry, param)
+    if ret is _MISSING:
         return default
 
-    if isinstance(ret, str):
-        normalized = ret.strip().lower()
-        if normalized in {"on", "yes", "up", "true", "1"}:
-            ret = True
-        elif normalized in {"off", "no", "down", "false", "0"}:
-            ret = False
-
-    if not isinstance(ret, bool):
-        ret = default
-
+    ret = _coerce_bool(ret, default)
     return not ret if reverse else ret
+
+
+# ---------------------------
+#   _str_default / _bool_default / _spec_default
+# ---------------------------
+def _str_default(val: dict[str, Any]) -> Any:
+    """Return the default for a string-typed value spec."""
+    if "default_val" in val and val["default_val"] in val:
+        return val[val["default_val"]]
+    return val.get("default", "")
+
+
+def _bool_default(val: dict[str, Any]) -> bool:
+    """Return the default for a bool-typed value spec."""
+    default = val.get("default", False)
+    return not default if val.get("reverse", False) else default
+
+
+def _spec_default(val: dict[str, Any]) -> Any:
+    """Return the configured default value for a value spec."""
+    if val.get("type", "str") == "bool":
+        return _bool_default(val)
+    return _str_default(val)
 
 
 # ---------------------------
@@ -128,48 +161,101 @@ def parse_api(
     """Get data from API."""
     if data is None:
         data = {}
-    debug = _LOGGER.getEffectiveLevel() == 10
     if isinstance(source, dict):
-        tmp = source
-        source = [tmp]
+        source = [source]
 
     if not source:
-        if not key and not key_search:
-            data = fill_defaults(data, vals)
-        return data
-
-    if debug:
-        _LOGGER.debug("Processing source %s", async_redact_data(source, TO_REDACT))
+        return _empty_source_result(data, key, key_search, vals)
 
     keymap = generate_keymap(data, key_search)
     for entry in source:
-        if only and not matches_only(entry, only):
+        if _should_skip_entry(entry, only, skip):
             continue
 
-        if skip and can_skip(entry, skip):
+        uid, matched = _resolve_entry_uid(
+            data, entry, key, key_secondary, key_search, keymap
+        )
+        if not matched:
             continue
 
-        uid = None
-        if key or key_search:
-            uid = get_uid(entry, key, key_secondary, key_search, keymap)
-            if uid is None:
-                continue
+        data = _apply_entry(data, entry, uid, vals, ensure_vals, val_proc)
 
-            if uid not in data:
-                data[uid] = {}
+    return data
 
-        if debug:
-            _LOGGER.debug("Processing entry %s", async_redact_data(entry, TO_REDACT))
 
-        if vals:
-            data = fill_vals(data, entry, uid, vals)
+# ---------------------------
+#   _empty_source_result
+# ---------------------------
+def _empty_source_result(
+    data: dict[str, Any],
+    key: str | None,
+    key_search: str | None,
+    vals: list[ApiValueSpec] | None,
+) -> dict[str, Any]:
+    """Return data for an empty source, filling defaults when keyless."""
+    return fill_defaults(data, vals) if not key and not key_search else data
 
-        if ensure_vals:
-            data = fill_ensure_vals(data, uid, ensure_vals)
 
-        if val_proc:
-            data = fill_vals_proc(data, uid, val_proc)
+# ---------------------------
+#   _should_skip_entry
+# ---------------------------
+def _should_skip_entry(
+    entry: dict[str, Any],
+    only: list[dict[str, Any]] | None,
+    skip: list[dict[str, Any]] | None,
+) -> bool:
+    """Return True if an entry should be excluded by only/skip filters."""
+    if only and not matches_only(entry, only):
+        return True
+    return bool(skip and can_skip(entry, skip))
 
+
+# ---------------------------
+#   _resolve_entry_uid
+# ---------------------------
+def _resolve_entry_uid(
+    data: dict[str, Any],
+    entry: dict[str, Any],
+    key: str | None,
+    key_secondary: str | None,
+    key_search: str | None,
+    keymap: dict[Hashable, str] | None,
+) -> tuple[str | None, bool]:
+    """Resolve the uid for an entry.
+
+    Returns a (uid, matched) tuple. ``matched`` is False when the entry has a
+    key requirement that could not be satisfied and should be skipped.
+    """
+    if not (key or key_search):
+        return None, True
+
+    uid = get_uid(entry, key, key_secondary, key_search, keymap)
+    if uid is None:
+        return None, False
+
+    if uid not in data:
+        data[uid] = {}
+    return uid, True
+
+
+# ---------------------------
+#   _apply_entry
+# ---------------------------
+def _apply_entry(
+    data: dict[str, Any],
+    entry: dict[str, Any],
+    uid: str | None,
+    vals: list[ApiValueSpec] | None,
+    ensure_vals: list[ApiValueSpec] | None,
+    val_proc: list[list[dict[str, Any]]] | None,
+) -> dict[str, Any]:
+    """Apply the vals/ensure_vals/val_proc processors to a single entry."""
+    if vals:
+        data = fill_vals(data, entry, uid, vals)
+    if ensure_vals:
+        data = fill_ensure_vals(data, uid, ensure_vals)
+    if val_proc:
+        data = fill_vals_proc(data, uid, val_proc)
     return data
 
 
@@ -214,11 +300,7 @@ def generate_keymap(
 # ---------------------------
 def matches_only(entry: dict[str, Any], only: list[dict[str, Any]]) -> bool:
     """Return True if all variables are matched."""
-    for val in only:
-        if entry.get(val["key"]) != val["value"]:
-            return False
-
-    return True
+    return all(entry.get(val["key"]) == val["value"] for val in only)
 
 
 # ---------------------------
@@ -250,24 +332,44 @@ def fill_defaults(data, vals) -> dict:
         return data
 
     for val in vals:
-        _name = val["name"]
-        _type = val["type"] if "type" in val else "str"
-
-        if _type == "str":
-            _default = val["default"] if "default" in val else ""
-            if "default_val" in val and val["default_val"] in val:
-                _default = val[val["default_val"]]
-
-            if _name not in data:
-                data[_name] = _default
-
-        elif _type == "bool":
-            _default = val["default"] if "default" in val else False
-            _reverse = val["reverse"] if "reverse" in val else False
-            if _name not in data:
-                data[_name] = not _default if _reverse else _default
+        name = val["name"]
+        if name not in data:
+            data[name] = _spec_default(val)
 
     return data
+
+
+# ---------------------------
+#   _convert_timestamp
+# ---------------------------
+def _convert_timestamp(target: dict[str, Any], name: str) -> None:
+    """Convert an int timestamp stored at target[name] into a UTC datetime."""
+    value = target.get(name)
+    if isinstance(value, int) and value > 0:
+        if value > MILLIS_TIMESTAMP_THRESHOLD:
+            value = value / 1000
+        target[name] = utc_from_timestamp(value)
+
+
+# ---------------------------
+#   _set_val
+# ---------------------------
+def _set_val(
+    target: dict[str, Any], entry: dict[str, Any], val: dict[str, Any]
+) -> None:
+    """Resolve a single value spec into target."""
+    name = val["name"]
+    source = val.get("source", name)
+
+    if val.get("type", "str") == "bool":
+        target[name] = from_entry_bool(
+            entry, source, default=_bool_default(val), reverse=val.get("reverse", False)
+        )
+    else:
+        target[name] = from_entry(entry, source, default=_str_default(val))
+
+    if val.get("convert") == "utc_from_timestamp":
+        _convert_timestamp(target, name)
 
 
 # ---------------------------
@@ -275,47 +377,9 @@ def fill_defaults(data, vals) -> dict:
 # ---------------------------
 def fill_vals(data, entry, uid, vals) -> dict:
     """Fill all data."""
+    target = data[uid] if uid is not None else data
     for val in vals:
-        _name = val["name"]
-        _type = val["type"] if "type" in val else "str"
-        _source = val["source"] if "source" in val else _name
-        _convert = val["convert"] if "convert" in val else None
-
-        if _type == "str":
-            _default = val["default"] if "default" in val else ""
-            if "default_val" in val and val["default_val"] in val:
-                _default = val[val["default_val"]]
-
-            if uid is not None:
-                data[uid][_name] = from_entry(entry, _source, default=_default)
-            else:
-                data[_name] = from_entry(entry, _source, default=_default)
-
-        elif _type == "bool":
-            _default = val["default"] if "default" in val else False
-            _reverse = val["reverse"] if "reverse" in val else False
-
-            if uid is not None:
-                data[uid][_name] = from_entry_bool(
-                    entry, _source, default=_default, reverse=_reverse
-                )
-            else:
-                data[_name] = from_entry_bool(
-                    entry, _source, default=_default, reverse=_reverse
-                )
-
-        if _convert == "utc_from_timestamp":
-            if uid is not None:
-                if isinstance(data[uid][_name], int) and data[uid][_name] > 0:
-                    if data[uid][_name] > MILLIS_TIMESTAMP_THRESHOLD:
-                        data[uid][_name] = data[uid][_name] / 1000
-
-                    data[uid][_name] = utc_from_timestamp(data[uid][_name])
-            elif isinstance(data[_name], int) and data[_name] > 0:
-                if data[_name] > MILLIS_TIMESTAMP_THRESHOLD:
-                    data[_name] = data[_name] / 1000
-
-                data[_name] = utc_from_timestamp(data[_name])
+        _set_val(target, entry, val)
 
     return data
 
@@ -328,17 +392,64 @@ def fill_ensure_vals(data, uid, ensure_vals) -> dict:
     if uid is not None and uid not in data:
         data[uid] = {}
 
+    target = data[uid] if uid is not None else data
     for val in ensure_vals:
-        if uid is not None:
-            if val["name"] not in data[uid]:
-                _default = val["default"] if "default" in val else ""
-                data[uid][val["name"]] = _default
-
-        elif val["name"] not in data:
-            _default = val["default"] if "default" in val else ""
-            data[val["name"]] = _default
+        name = val["name"]
+        if name not in target:
+            target[name] = val.get("default", "")
 
     return data
+
+
+# ---------------------------
+#   _validate_action / _combine_value / _process_val_sub
+# ---------------------------
+def _validate_action(action: str, name: str | None) -> str:
+    """Validate a vals_proc action, raising for unsupported actions."""
+    if action not in _SUPPORTED_VALS_PROC_ACTIONS:
+        raise ValueError(
+            f"Unsupported action '{action}' in vals_proc for name '{name}'"
+        )
+    return action
+
+
+def _combine_value(source: dict[str, Any], val: dict[str, Any], value: Any) -> Any:
+    """Append a key's value and/or literal text to the accumulated value."""
+    if "key" in val:
+        tmp = source.get(val["key"], "unknown")
+        value = f"{value}{tmp}" if value else tmp
+
+    if "text" in val:
+        tmp = val["text"]
+        value = f"{value}{tmp}" if value else tmp
+
+    return value
+
+
+def _process_val_sub(
+    source: dict[str, Any], val_sub: list[dict[str, Any]]
+) -> tuple[str | None, Any]:
+    """Resolve a single val_proc spec into a (name, value) pair."""
+    name: str | None = None
+    action: str | None = None
+    value: Any = None
+
+    for val in val_sub:
+        if "name" in val:
+            name = val["name"]
+            continue
+
+        if "action" in val:
+            action = _validate_action(val["action"], name)
+            continue
+
+        if not name and not action:
+            break
+
+        if action == "combine":
+            value = _combine_value(source, val, value)
+
+    return name, value
 
 
 # ---------------------------
@@ -346,43 +457,11 @@ def fill_ensure_vals(data, uid, ensure_vals) -> dict:
 # ---------------------------
 def fill_vals_proc(data, uid, vals_proc) -> dict:
     """Add custom keys."""
-    _data = data[uid] if uid is not None else data
-    supported_actions = {"combine"}
+    target = data[uid] if uid is not None else data
 
     for val_sub in vals_proc:
-        _name = None
-        _action = None
-        _value = None
-        for val in val_sub:
-            if "name" in val:
-                _name = val["name"]
-                continue
-
-            if "action" in val:
-                _action = val["action"]
-                if _action not in supported_actions:
-                    raise ValueError(
-                        f"Unsupported action '{_action}' in vals_proc "
-                        f"for name '{_name}'"
-                    )
-                continue
-
-            if not _name and not _action:
-                break
-
-            if _action == "combine":
-                if "key" in val:
-                    tmp = _data[val["key"]] if val["key"] in _data else "unknown"
-                    _value = f"{_value}{tmp}" if _value else tmp
-
-                if "text" in val:
-                    tmp = val["text"]
-                    _value = f"{_value}{tmp}" if _value else tmp
-
-        if _name and _value is not None:
-            if uid is not None:
-                data[uid][_name] = _value
-            else:
-                data[_name] = _value
+        name, value = _process_val_sub(target, val_sub)
+        if name and value is not None:
+            target[name] = value
 
     return data

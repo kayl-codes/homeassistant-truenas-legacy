@@ -31,6 +31,21 @@ _LOGGER = getLogger(__name__)
 
 
 # ---------------------------
+#   format_unique_id
+# ---------------------------
+def format_unique_id(inst: str, key: str, reference: object = None) -> str:
+    """Build an entity unique_id from instance name, description key and reference.
+
+    Shared so the migration in __init__.py can resolve the same unique_id an
+    entity produces.
+    """
+    base = f"{inst.lower()}-{key}"
+    if reference is None:
+        return base
+    return f"{base}-{slugify(str(reference).lower())}"
+
+
+# ---------------------------
 #   async_add_entities
 # ---------------------------
 async def async_add_entities(
@@ -166,14 +181,10 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         if self._uid:
             data_ref = getattr(self.entity_description, "data_reference", None)
             value = self._data.get(data_ref) if self._data and data_ref else None
-            base = (
-                slugify(str(value).lower())
-                if value is not None
-                else slugify(str(self._uid).lower())
-            )
-            return f"{self._inst.lower()}-{self.entity_description.key}-{base}"
+            reference = value if value is not None else self._uid
+            return format_unique_id(self._inst, self.entity_description.key, reference)
 
-        return f"{self._inst.lower()}-{self.entity_description.key}"
+        return format_unique_id(self._inst, self.entity_description.key)
 
     @property
     def device_info(self) -> DeviceInfo:

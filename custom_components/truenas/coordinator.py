@@ -30,6 +30,124 @@ _LOGGER = logging.getLogger(__name__)
 
 
 # ---------------------------
+#   _stat_name_similar
+# ---------------------------
+def _stat_name_similar(a: str, b: str) -> bool:
+    """Return True if two stat graph names look like near-misses of each other."""
+    a_l, b_l = a.lower(), b.lower()
+    if a_l == b_l:
+        return False
+    if a_l.replace("_", "") == b_l.replace("_", ""):
+        return True
+    if (
+        a_l.startswith(b_l)
+        or a_l.endswith(b_l)
+        or b_l.startswith(a_l)
+        or b_l.endswith(a_l)
+    ):
+        return True
+    return abs(len(a_l) - len(b_l)) <= 2 and a_l[:3] == b_l[:3]
+
+
+# ---------------------------
+#   _median
+# ---------------------------
+def _median(values: list[float]) -> float:
+    """Return the median of a non-empty list of numbers."""
+    sorted_vals = sorted(values)
+    n = len(sorted_vals)
+    mid = n // 2
+    if n % 2 == 1:
+        return sorted_vals[mid]
+    return (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
+
+
+# ---------------------------
+#   topology error aggregation
+# ---------------------------
+def _as_int(value: Any) -> int:
+    """Return value as an int, or 0 if it is not an integer."""
+    return value if isinstance(value, int) else 0
+
+
+def _to_int(value: Any, default: int = 0) -> int:
+    """Parse value into an int (also from strings like "48"), else default."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _accumulate_vdev_errors(vdev: Any, totals: dict[str, int]) -> None:
+    """Recursively accumulate leaf-device error counts into totals.
+
+    Only leaf vdevs (those without children) are counted, so the error totals
+    of parent vdevs (e.g. mirrors) are not added on top of their disks.
+    """
+    if not isinstance(vdev, dict):
+        return
+
+    children = vdev.get("children")
+    if isinstance(children, list) and children:
+        for child in children:
+            _accumulate_vdev_errors(child, totals)
+        return
+
+    stats = vdev.get("stats")
+    if isinstance(stats, dict):
+        totals["read"] += _as_int(stats.get("read_errors"))
+        totals["write"] += _as_int(stats.get("write_errors"))
+        totals["checksum"] += _as_int(stats.get("checksum_errors"))
+
+
+def _aggregate_topology_errors(topology: Any) -> tuple[int, int, int]:
+    """Sum read/write/checksum errors across all leaf vdevs of a pool topology."""
+    totals = {"read": 0, "write": 0, "checksum": 0}
+    if not isinstance(topology, dict):
+        return 0, 0, 0
+
+    # Categories: data, log, cache, spare, special, dedup.
+    for category in topology.values():
+        if isinstance(category, list):
+            for vdev in category:
+                _accumulate_vdev_errors(vdev, totals)
+
+    return totals["read"], totals["write"], totals["checksum"]
+
+
+# ---------------------------
+#   UPS netdata graphs
+# ---------------------------
+# Maps the netdata graph name (reporting.netdata_graphs) to the ds["ups"] field.
+_UPS_GRAPHS = {
+    "upscharge": "battery_charge",
+    "upsruntime": "runtime_seconds",
+    "upsload": "load",
+    "upsvoltage": "voltage",
+    "upscurrent": "current",
+    "upsfrequency": "frequency",
+    "upstemperature": "temperature",
+}
+
+
+def _ups_value(graph_data: Any) -> float | None:
+    """Return the mean value of a single-metric UPS netdata graph, if present."""
+    if not isinstance(graph_data, list) or not graph_data:
+        return None
+
+    item = graph_data[0]
+    if not isinstance(item, dict):
+        return None
+
+    mean = item.get("aggregations", {}).get("mean", {})
+    values = [v for v in mean.values() if isinstance(v, (int, float))]
+    if not values:
+        return None
+
+    return round(sum(values) / len(values), 2)
+
+
+# ---------------------------
 #   TrueNASControllerData
 # ---------------------------
 class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -63,6 +181,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "snapshottask": {},
             "app": {},
             "cronjob": {},
+            "ups": {},
             "alerts": {
                 "count": 0,
                 "messages": [],
@@ -82,6 +201,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._systemstats_errored: dict[str, datetime] = {}
         self._systemstats_error_cooldown = timedelta(minutes=10)
         self._disk_temp_graph = None
+        self._ups_graphs: set[str] | None = None
         self.datasets_hass_device_id = None
         self.last_updatecheck_update = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -115,7 +235,6 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.get_service,
             self.get_disk,
             self.get_dataset,
-            self.get_pool,
             self.get_vm,
             self.get_cloudsync,
             self.get_replication,
@@ -124,6 +243,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.get_cronjob,
             self.get_alerts,
             self.get_smb,
+            self.get_ups,
         ]
 
         if self.api.connected():
@@ -132,13 +252,17 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     await self.hass.async_add_executor_job(job)
                 except Exception as err:
-                    _LOGGER.error(
+                    _LOGGER.exception(
                         "Error running TrueNAS job %s: %s",
                         getattr(job, "__name__", job),
                         err,
                     )
 
             await asyncio.gather(*(_run_job(job) for job in jobs))
+
+            # get_pool relies on dataset data, so run it after gather completes
+            if self.api.connected():
+                await _run_job(self.get_pool)
 
         now = datetime.now(UTC).replace(microsecond=0)
         delta = now - self.last_updatecheck_update
@@ -205,43 +329,67 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "version", "unknown"
             )
 
-        # Handle running update jobs
-        if self.ds["system_info"].get("update_jobid"):
-            self.ds["system_info"] = parse_api(
-                data=self.ds["system_info"],
-                source=self.api.query(
-                    "core.get_jobs",
-                    params=[[["id", "=", self.ds["system_info"].get("update_jobid")]]],
-                ),
-                vals=[
-                    {
-                        "name": "update_progress",
-                        "source": "progress/percent",
-                        "default": 0,
-                    },
-                    {
-                        "name": "update_state",
-                        "source": "state",
-                        "default": "unknown",
-                    },
-                ],
-            )
-            if not self.api.connected():
-                return
+        self._handle_update_job()
+        if not self.api.connected():
+            return
 
-            if self.ds["system_info"].get("update_state") != "RUNNING" or not self.ds[
-                "system_info"
-            ].get("update_available"):
-                self.ds["system_info"]["update_progress"] = 0
-                self.ds["system_info"]["update_jobid"] = 0
-                self.ds["system_info"]["update_state"] = "unknown"
+        self._parse_version()
+        self._detect_virtualization()
+        self._update_uptime()
+        self._query_interfaces()
 
-        # Parsing logic to prevent "0.0.0" display and avoid misrepresenting
-        # the system version on malformed or missing input.
+    # ---------------------------
+    #   _handle_update_job
+    # ---------------------------
+    def _handle_update_job(self) -> None:
+        """Refresh progress/state for a running update job, if any."""
+        if not self.ds["system_info"].get("update_jobid"):
+            return
+
+        self.ds["system_info"] = parse_api(
+            data=self.ds["system_info"],
+            source=self.api.query(
+                "core.get_jobs",
+                params=[[["id", "=", self.ds["system_info"].get("update_jobid")]]],
+            ),
+            vals=[
+                {
+                    "name": "update_progress",
+                    "source": "progress/percent",
+                    "default": 0,
+                },
+                {
+                    "name": "update_state",
+                    "source": "state",
+                    "default": "unknown",
+                },
+            ],
+        )
+        if not self.api.connected():
+            return
+
+        if self.ds["system_info"].get("update_state") != "RUNNING" or not self.ds[
+            "system_info"
+        ].get("update_available"):
+            self.ds["system_info"]["update_progress"] = 0
+            self.ds["system_info"]["update_jobid"] = 0
+            self.ds["system_info"]["update_state"] = "unknown"
+
+    # ---------------------------
+    #   _parse_version
+    # ---------------------------
+    def _parse_version(self) -> None:
+        """Parse major/minor version numbers from the reported version string.
+
+        Prevents a "0.0.0" display and avoids misrepresenting the system version
+        on malformed or missing input.
+        """
         version_str = str(self.ds["system_info"].get("version", "") or "")
         clean_version = version_str.replace("TrueNAS-", "").replace("SCALE-", "")
 
-        if match := re.search(r"(\d+)\.(\d+)", clean_version):
+        # Bounded quantifiers ({1,9}) avoid unbounded backtracking (Sonar S5852);
+        # version components never have that many digits.
+        if match := re.search(r"(\d{1,9})\.(\d{1,9})", clean_version):
             self._version_major = int(match[1])
             self._version_minor = int(match[2])
         elif clean_version:
@@ -249,7 +397,11 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "Failed to parse TrueNAS version from string: %s", version_str
             )
 
-        # Virtualization check
+    # ---------------------------
+    #   _detect_virtualization
+    # ---------------------------
+    def _detect_virtualization(self) -> None:
+        """Detect whether TrueNAS is running virtualized."""
         self._is_virtual = self.ds["system_info"].get("system_manufacturer") in [
             "QEMU",
             "VMware, Inc.",
@@ -260,24 +412,33 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "Virtual Machine",
         ]
 
-        # Uptime calculation
+    # ---------------------------
+    #   _update_uptime
+    # ---------------------------
+    def _update_uptime(self) -> None:
+        """Update the uptime epoch, using a tolerance to avoid sensor jitter."""
         uptime_seconds = self.ds["system_info"].get("uptime_seconds", 0)
-        if uptime_seconds > 0:
-            now = datetime.now(UTC).replace(microsecond=0)
-            now_epoch = int(now.timestamp())
-            new_uptime_epoch = now_epoch - int(uptime_seconds)
+        if uptime_seconds <= 0:
+            return
 
-            old_uptime_epoch = self.ds["system_info"].get("uptimeEpoch", 0)
-            if (
-                old_uptime_epoch == 0
-                or abs(new_uptime_epoch - old_uptime_epoch)
-                > UPTIME_EPOCH_TOLERANCE_SECONDS
-            ):
-                self.ds["system_info"]["uptimeEpoch"] = new_uptime_epoch
-            else:
-                self.ds["system_info"]["uptimeEpoch"] = old_uptime_epoch
+        now = datetime.now(UTC).replace(microsecond=0)
+        now_epoch = int(now.timestamp())
+        new_uptime_epoch = now_epoch - int(uptime_seconds)
 
-        # Network interface query
+        old_uptime_epoch = self.ds["system_info"].get("uptimeEpoch", 0)
+        if (
+            old_uptime_epoch == 0
+            or abs(new_uptime_epoch - old_uptime_epoch) > UPTIME_EPOCH_TOLERANCE_SECONDS
+        ):
+            self.ds["system_info"]["uptimeEpoch"] = new_uptime_epoch
+        else:
+            self.ds["system_info"]["uptimeEpoch"] = old_uptime_epoch
+
+    # ---------------------------
+    #   _query_interfaces
+    # ---------------------------
+    def _query_interfaces(self) -> None:
+        """Query network interfaces from TrueNAS."""
         self.ds["interface"] = parse_api(
             data=self.ds["interface"],
             source=self.api.query("interface.query"),
@@ -399,12 +560,31 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def get_systemstats(self) -> None:
         """Get system statistics."""
         report_epoch = int(datetime.now(UTC).replace(microsecond=0).timestamp())
+        graph_names = self._select_stat_graph_names()
+        if not graph_names:
+            return
+
+        graph_query = {
+            "start": report_epoch - 90,
+            "end": report_epoch - 30,
+            "aggregate": True,
+        }
+        tmp_graph = self._fetch_stat_graphs(graph_names, graph_query)
+        if not tmp_graph:
+            return
+
+        for item in tmp_graph:
+            if isinstance(item, dict):
+                self._process_system_stat(item)
+
+    def _select_stat_graph_names(self) -> list[str]:
+        """Build the list of stat graphs to query, honoring the error cooldown."""
         graph_names = ["load", "cputemp", "cpu", "arcsize", "memory"]
 
         if self.ds["interface"]:
             graph_names.append("interface")
 
-        # TODO: Consider making this a config option. Many hypervisors do not
+        # 2DO: Consider making this a config option. Many hypervisors do not
         # pass through CPU temperatures, causing API errors. However, some do,
         # so users might want to explicitly enable 'cputemp' polling even for VMs.
         if self._is_virtual and "cputemp" in graph_names:
@@ -417,23 +597,17 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if now - ts < self._systemstats_error_cooldown
         }
 
-        graph_names = [
+        return [
             graph_name
             for graph_name in graph_names
             if graph_name not in self._systemstats_errored
         ]
 
-        if not graph_names:
-            return
-
-        graph_query = {
-            "start": report_epoch - 90,
-            "end": report_epoch - 30,
-            "aggregate": True,
-        }
+    def _fetch_stat_graphs(self, graph_names: list[str], graph_query: dict) -> list:
+        """Query each stat graph, returning combined data and tracking failures."""
         reporting_path = "reporting.netdata_graph"
-        tmp_graph = []
-        failed_graphs = []
+        tmp_graph: list = []
+        failed_graphs: list[str] = []
 
         for graph_name in graph_names:
             graph_data = self.api.query(
@@ -445,31 +619,30 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 failed_graphs.append(graph_name)
 
+        self._record_failed_graphs(failed_graphs)
+        return tmp_graph
+
+    def _record_failed_graphs(self, failed_graphs: list[str]) -> None:
+        """Record failed graphs, logging only newly failed ones to avoid spam."""
+        if not failed_graphs:
+            return
+
         # Only log when a graph transitions into a failed state (i.e. was not
         # already in _systemstats_errored), to avoid spamming the log on every
         # coordinator update while the graph remains broken.
-        if failed_graphs:
-            newly_failed_graphs: list[str] = []
-            now = datetime.now(UTC)
-            for graph_name in failed_graphs:
-                if graph_name not in self._systemstats_errored:
-                    newly_failed_graphs.append(graph_name)
-                self._systemstats_errored[graph_name] = now
+        newly_failed_graphs: list[str] = []
+        now = datetime.now(UTC)
+        for graph_name in failed_graphs:
+            if graph_name not in self._systemstats_errored:
+                newly_failed_graphs.append(graph_name)
+            self._systemstats_errored[graph_name] = now
 
-            if newly_failed_graphs:
-                _LOGGER.warning(
-                    "TrueNAS %s failed to fetch graphs: %s",
-                    self.host,
-                    newly_failed_graphs,
-                )
-
-        if not tmp_graph:
-            return
-
-        for item in tmp_graph:
-            if not isinstance(item, dict):
-                continue
-            self._process_system_stat(item)
+        if newly_failed_graphs:
+            _LOGGER.warning(
+                "TrueNAS %s failed to fetch graphs: %s",
+                self.host,
+                newly_failed_graphs,
+            )
 
     def _process_system_stat(self, item: dict) -> None:
         """Process a single system statistic item."""
@@ -477,97 +650,71 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not name:
             return
 
-        # CPU temperature
         if name == "cputemp":
-            mean_vals = item.get("aggregations", {}).get("mean", {})
-            valid_means = [v for v in mean_vals.values() if isinstance(v, (int, float))]
-            self.ds["system_info"]["cpu_temperature"] = (
-                round(max(valid_means), 2) if valid_means else None
-            )
-
-        # CPU load
+            self._process_cputemp(item)
         elif name == "load":
-            tmp_arr = ("shortterm", "midterm", "longterm")
-            self._systemstats_process(tmp_arr, item, "load")
-
-        # CPU usage
+            self._systemstats_process(
+                ("shortterm", "midterm", "longterm"), item, "load"
+            )
         elif name == "cpu":
-            tmp_arr = "cpu"
-            self._systemstats_process(tmp_arr, item, "cpu")
+            self._systemstats_process("cpu", item, "cpu")
             cpu_cpu = self.ds["system_info"].get("cpu_cpu", 0.0)
             self.ds["system_info"]["cpu_usage"] = round(cpu_cpu, 2)
-
-        # Interface
         elif name == "interface":
             tmp_etc = item["identifier"]
             if tmp_etc in self.ds["interface"]:
                 self._process_system_stat_interface(item, tmp_etc)
-
-        # memory
         elif name == "memory":
-            tmp_arr = "available"
-            self.ds["system_info"]["memory-total_value"] = round(
-                self.ds["system_info"].get("physmem", 0)
+            self._process_memory_stat(item)
+        elif name == "arcsize":
+            self._systemstats_process("arc_size", item, "arcsize")
+        else:
+            self._handle_unknown_stat(name)
+
+    def _process_cputemp(self, item: dict) -> None:
+        """Store the CPU temperature from a cputemp graph item."""
+        mean_vals = item.get("aggregations", {}).get("mean", {})
+        valid_means = [v for v in mean_vals.values() if isinstance(v, (int, float))]
+        self.ds["system_info"]["cpu_temperature"] = (
+            round(max(valid_means), 2) if valid_means else None
+        )
+
+    def _process_memory_stat(self, item: dict) -> None:
+        """Store memory totals and usage percentage from a memory graph item."""
+        self.ds["system_info"]["memory-total_value"] = round(
+            self.ds["system_info"].get("physmem", 0)
+        )
+
+        self._systemstats_process("available", item, "memory")
+        total_mem = self.ds["system_info"].get("memory-total_value", 0.0)
+        free_mem = self.ds["system_info"].get("memory-free_value", 0.0)
+        if total_mem > 0:
+            self.ds["system_info"]["memory-usage_percent"] = round(
+                100 * (float(total_mem) - float(free_mem)) / float(total_mem)
             )
 
-            self._systemstats_process(tmp_arr, item, "memory")
-            total_mem = self.ds["system_info"].get("memory-total_value", 0.0)
-            free_mem = self.ds["system_info"].get("memory-free_value", 0.0)
-            if total_mem > 0:
-                self.ds["system_info"]["memory-usage_percent"] = round(
-                    100 * (float(total_mem) - float(free_mem)) / float(total_mem)
-                )
+    def _handle_unknown_stat(self, name: str) -> None:
+        """Log an unknown stat graph name once to surface potential API changes."""
+        if name in self._unknown_system_stat_names:
+            return
 
-        # arcsize
-        elif name == "arcsize":
-            tmp_arr = "arc_size"
-            self._systemstats_process(tmp_arr, item, "arcsize")
+        self._unknown_system_stat_names.add(name)
+        _LOGGER.warning(
+            "TrueNAS %s returned unknown system stat graph name '%s'; "
+            "this may indicate a TrueNAS API change or misconfiguration",
+            self.host,
+            name,
+        )
 
-        else:
-            # Log a warning once per unknown name to surface potential API
-            # changes/misconfigurations.
-            if name not in self._unknown_system_stat_names:
-                self._unknown_system_stat_names.add(name)
-                _LOGGER.warning(
-                    "TrueNAS %s returned unknown system stat graph name '%s'; "
-                    "this may indicate a TrueNAS API change or misconfiguration",
-                    self.host,
-                    name,
-                )
-
-                # Basic near-miss detection for diagnostics (debug level only).
-                def _similar(a: str, b: str) -> bool:
-                    a_l, b_l = a.lower(), b.lower()
-                    if a_l == b_l:
-                        return False
-                    if a_l.replace("_", "") == b_l.replace("_", ""):
-                        return True
-                    if (
-                        a_l.startswith(b_l)
-                        or a_l.endswith(b_l)
-                        or b_l.startswith(a_l)
-                        or b_l.endswith(a_l)
-                    ):
-                        return True
-                    return abs(len(a_l) - len(b_l)) <= 2 and a_l[:3] == b_l[:3]
-
-                known_names = {
-                    "cputemp",
-                    "load",
-                    "cpu",
-                    "interface",
-                    "memory",
-                    "arcsize",
-                }
-                near_misses = [k for k in known_names if _similar(name, k)]
-                if near_misses:
-                    _LOGGER.debug(
-                        "Unknown system stat graph name '%s' from TrueNAS %s "
-                        "is similar to known names: %s",
-                        name,
-                        self.host,
-                        ", ".join(sorted(near_misses)),
-                    )
+        known_names = {"cputemp", "load", "cpu", "interface", "memory", "arcsize"}
+        if near_misses := [k for k in known_names if _stat_name_similar(name, k)]:
+            _LOGGER.debug(
+                "Unknown system stat graph name '%s' from TrueNAS %s "
+                "is similar to known names: %s",
+                name,
+                self.host,
+                ", ".join(sorted(near_misses)),
+            )
 
     def _process_system_stat_interface(self, item: dict, tmp_etc: str) -> None:
         """Process interface system statistics."""
@@ -613,32 +760,42 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         aggregations = graph.get("aggregations")
         legend = graph.get("legend")
 
-        if isinstance(aggregations, dict) and isinstance(legend, list):
-            for tmp_var in legend:
-                if tmp_var in arr:
-                    mean_data = aggregations.get("mean")
-                    tmp_val = (
-                        mean_data.get(tmp_var) if isinstance(mean_data, dict) else 0.0
-                    ) or 0.0
-                    if t == "memory":
-                        if tmp_var == "available":
-                            self.ds["system_info"]["memory-free_value"] = round(tmp_val)
-                    elif t == "cpu":
-                        self.ds["system_info"][f"cpu_{tmp_var}"] = round(tmp_val, 2)
-                    elif t == "load":
-                        self.ds["system_info"][f"load_{tmp_var}"] = round(tmp_val, 2)
-                    elif t == "arcsize":
-                        self.ds["system_info"]["cache_size-arc_value"] = round(
-                            tmp_val, 2
-                        )
-                    else:
-                        self.ds["system_info"][tmp_var] = round(tmp_val, 2)
+        if not (isinstance(aggregations, dict) and isinstance(legend, list)):
+            self._store_stat_defaults(t, arr)
+            return
+
+        mean_data = aggregations.get("mean")
+        for tmp_var in legend:
+            if tmp_var not in arr:
+                continue
+            tmp_val = (
+                mean_data.get(tmp_var) if isinstance(mean_data, dict) else 0.0
+            ) or 0.0
+            self._store_stat_value(t, tmp_var, tmp_val)
+
+    def _store_stat_value(self, t: str, tmp_var: str, tmp_val: float) -> None:
+        """Store a single processed statistic value under the right key."""
+        info = self.ds["system_info"]
+        if t == "arcsize":
+            info["cache_size-arc_value"] = round(tmp_val, 2)
+        elif t == "cpu":
+            info[f"cpu_{tmp_var}"] = round(tmp_val, 2)
+        elif t == "load":
+            info[f"load_{tmp_var}"] = round(tmp_val, 2)
+        elif t == "memory":
+            if tmp_var == "available":
+                info["memory-free_value"] = round(tmp_val)
         else:
-            for tmp_load in arr:
-                if t == "cpu":
-                    self.ds["system_info"][f"cpu_{tmp_load}"] = 0.0
-                else:
-                    self.ds["system_info"][tmp_load] = 0.0
+            info[tmp_var] = round(tmp_val, 2)
+
+    def _store_stat_defaults(self, t: str, arr: tuple) -> None:
+        """Store zeroed defaults when a statistic graph has no aggregations."""
+        info = self.ds["system_info"]
+        for tmp_load in arr:
+            if t == "cpu":
+                info[f"cpu_{tmp_load}"] = 0.0
+            else:
+                info[tmp_load] = 0.0
 
     # ---------------------------
     #   get_service
@@ -695,9 +852,10 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_pool(self) -> None:
         """Get pools from TrueNAS."""
+        raw_pools = self.api.query("pool.query")
         self.ds["pool"] = parse_api(
             data=self.ds["pool"],
-            source=self.api.query("pool.query"),
+            source=raw_pools,
             key="guid",
             vals=[
                 {"name": "guid", "default": 0},
@@ -710,6 +868,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "size", "default": 0},
                 {"name": "allocated", "default": 0},
                 {"name": "free", "default": 0},
+                {"name": "fragmentation", "default": 0},
                 {
                     "name": "autotrim",
                     "source": "autotrim/parsed",
@@ -744,58 +903,126 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "available", "default": 0.0},
                 {"name": "total", "default": 0.0},
                 {"name": "usage", "default": 0.0},
+                {"name": "errors", "default": 0},
+                {"name": "read_errors", "default": 0},
+                {"name": "write_errors", "default": 0},
+                {"name": "checksum_errors", "default": 0},
             ],
         )
         if not self.api.connected():
             return
 
-        # Process pools
-        tmp_dataset_available = {}
-        tmp_dataset_total = {}
-        for uid, vals in self.ds["dataset"].items():
-            tmp_dataset_available[self.ds["dataset"][uid]["mountpoint"]] = vals[
-                "available"
-            ]
+        self._apply_pool_errors(raw_pools)
 
-            tmp_dataset_total[self.ds["dataset"][uid]["mountpoint"]] = (
-                vals["available"] + vals["used"]
+        # Build a lookup of datasets by their mountpoint so a pool's free/total
+        # space can be derived from its root dataset. Matching the pool "path"
+        # against the dataset "mountpoint" (e.g. "/mnt/tank") is the primary and
+        # most reliable method; the dataset id (which equals the pool name for a
+        # root dataset) is used only as a fallback.
+        dataset_by_mountpoint: dict[str, dict[str, Any]] = {
+            dataset["mountpoint"]: dataset
+            for dataset in self.ds["dataset"].values()
+            if isinstance(dataset.get("mountpoint"), str)
+            and dataset["mountpoint"] not in ("", "unknown")
+        }
+
+        _LOGGER.debug(
+            "get_pool: processing %d pool(s); dataset mountpoints=%s",
+            len(self.ds["pool"]),
+            sorted(dataset_by_mountpoint),
+        )
+
+        # Process pools
+        for uid, vals in self.ds["pool"].items():
+            root_dataset = dataset_by_mountpoint.get(vals.get("path"))
+            match_source = "mountpoint"
+            if root_dataset is None:
+                root_dataset = self.ds["dataset"].get(vals.get("name"))
+                match_source = "name" if root_dataset is not None else "pool-fallback"
+
+            _LOGGER.debug(
+                "get_pool: pool=%s path=%s match=%s "
+                "dataset(available=%s, used=%s) pool(free=%s, size=%s, allocated=%s)",
+                vals.get("name"),
+                vals.get("path"),
+                match_source,
+                root_dataset.get("available") if root_dataset else None,
+                root_dataset.get("used") if root_dataset else None,
+                vals.get("free"),
+                vals.get("size"),
+                vals.get("allocated"),
             )
 
-        for uid, vals in self.ds["pool"].items():
-            if vals.get("free") is not None:
-                self.ds["pool"][uid]["available"] = vals["free"]
+            self._apply_pool_capacity(uid, vals, root_dataset)
 
-            if vals.get("size") is not None:
-                self.ds["pool"][uid]["total"] = vals["size"]
-            elif vals.get("allocated") is not None or vals.get("free") is not None:
-                self.ds["pool"][uid]["total"] = vals.get("allocated", 0) + vals.get(
-                    "free", 0
+            # pool.query reports fragmentation as a percentage string (e.g. "48").
+            self.ds["pool"][uid]["fragmentation"] = _to_int(vals.get("fragmentation"))
+
+    # ---------------------------
+    #   _apply_pool_capacity
+    # ---------------------------
+    def _apply_pool_capacity(
+        self, uid: str, vals: dict[str, Any], root_dataset: dict[str, Any] | None
+    ) -> None:
+        """Set available/total/usage for a single pool.
+
+        Prefers the root dataset's available/used values (matching the figures
+        shown in the TrueNAS UI) and falls back to the pool's own free/size
+        fields when no root dataset is available (e.g. boot-pool).
+        """
+        if root_dataset:
+            available = root_dataset.get("available", 0)
+            total = available + root_dataset.get("used", 0)
+        else:
+            available = vals.get("free") or 0
+            total = vals.get("size") or (
+                (vals.get("allocated") or 0) + (vals.get("free") or 0)
+            )
+
+        self.ds["pool"][uid]["available"] = available
+        self.ds["pool"][uid]["total"] = total
+        self.ds["pool"][uid]["usage"] = (
+            round((total - available) / total * 100) if total > 0 else 0
+        )
+
+        _LOGGER.debug(
+            "get_pool: pool uid=%s -> available=%s total=%s usage=%s%%",
+            uid,
+            available,
+            total,
+            self.ds["pool"][uid]["usage"],
+        )
+
+    # ---------------------------
+    #   _apply_pool_errors
+    # ---------------------------
+    def _apply_pool_errors(self, raw_pools: Any) -> None:
+        """Aggregate read/write/checksum errors from each pool's topology."""
+        if not isinstance(raw_pools, list):
+            return
+
+        for raw_pool in raw_pools:
+            if not isinstance(raw_pool, dict):
+                continue
+            uid = raw_pool.get("guid")
+            if uid not in self.ds["pool"]:
+                continue
+
+            read, write, checksum = _aggregate_topology_errors(raw_pool.get("topology"))
+            pool = self.ds["pool"][uid]
+            pool["read_errors"] = read
+            pool["write_errors"] = write
+            pool["checksum_errors"] = checksum
+            pool["errors"] = read + write + checksum
+
+            if pool["errors"]:
+                _LOGGER.debug(
+                    "get_pool: pool=%s errors read=%s write=%s checksum=%s",
+                    raw_pool.get("name"),
+                    read,
+                    write,
+                    checksum,
                 )
-
-            path = vals.get("path")
-            if (
-                path
-                and path in tmp_dataset_available
-                and not self.ds["pool"][uid]["available"]
-            ):
-                self.ds["pool"][uid]["available"] = tmp_dataset_available[path]
-
-            if path and path in tmp_dataset_total and not self.ds["pool"][uid]["total"]:
-                self.ds["pool"][uid]["total"] = tmp_dataset_total[path]
-
-            if self.ds["pool"][uid]["total"] > 0:
-                self.ds["pool"][uid]["usage"] = round(
-                    (
-                        (
-                            self.ds["pool"][uid]["total"]
-                            - self.ds["pool"][uid]["available"]
-                        )
-                        / self.ds["pool"][uid]["total"]
-                    )
-                    * 100
-                )
-            else:
-                self.ds["pool"][uid]["usage"] = 0
 
     # ---------------------------
     #   get_dataset
@@ -978,9 +1205,18 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, missing_disks: list[str], has_netdata: bool
     ) -> None:
         """Fetch fallback temperatures from API and map them to missing disks."""
+        # disk.temperatures expects its first argument ("name") to be a list of
+        # disk names; an empty list returns temperatures for all disks. Passing a
+        # dict/empty mapping is rejected with a validation error on TrueNAS 25.10+.
+        disk_names: list[str] = []
+        for uid in missing_disks:
+            name = self.ds["disk"].get(uid, {}).get("name")
+            if name and name != "unknown":
+                disk_names.append(name)
+
         temps = self.api.query(
             "disk.temperatures",
-            params={},
+            params=[disk_names],
         )
 
         if self._is_valid_disk_temperature_payload(temps):
@@ -1031,19 +1267,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _disk_temps_from_netdata(self) -> dict[str, float] | None:
         """Return disk temperatures from netdata graphs when available."""
         if self._disk_temp_graph is None:
-            graphs = self.api.query("reporting.netdata_graphs")
-            graph_name = ""
-            if isinstance(graphs, list):
-                for graph in graphs:
-                    name = str(graph.get("name", ""))
-                    title = str(graph.get("title", "")).lower()
-                    vertical = str(graph.get("vertical_label", "")).lower()
-                    if ("disk" in name or "disk" in title) and (
-                        "temp" in name or "temp" in title or "celsius" in vertical
-                    ):
-                        graph_name = name
-                        break
-            self._disk_temp_graph = graph_name
+            self._disk_temp_graph = self._discover_disk_temp_graph()
 
         if not self._disk_temp_graph:
             return None
@@ -1061,38 +1285,45 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(graph_data, list):
             return None
 
-        temps = {}
-        # Sanity bounds for temperatures in °C to avoid clearly invalid readings
-        min_temp_c = 0.0
-        max_temp_c = 100.0
-
+        temps: dict[str, float] = {}
         for entry in graph_data:
-            identifier = entry.get("identifier")
-            mean = entry.get("aggregations", {}).get("mean", {})
-            if not identifier or not isinstance(mean, dict) or not mean:
-                continue
-
-            # Collect numeric mean values and discard values outside sane bounds
-            valid_means = [
-                v
-                for v in mean.values()
-                if isinstance(v, (int, float)) and min_temp_c <= v <= max_temp_c
-            ]
-            if not valid_means:
-                continue
-
-            # Use median to reduce the impact of transient spikes/outliers
-            sorted_vals = sorted(valid_means)
-            n = len(sorted_vals)
-            mid = n // 2
-            median_val = (
-                sorted_vals[mid]
-                if n % 2 == 1
-                else (sorted_vals[mid - 1] + sorted_vals[mid]) / 2
-            )
-            temps[str(identifier)] = median_val
+            self._collect_disk_temp(entry, temps)
 
         return temps or None
+
+    def _discover_disk_temp_graph(self) -> str:
+        """Find the netdata graph name that reports disk temperatures."""
+        graphs = self.api.query("reporting.netdata_graphs")
+        if not isinstance(graphs, list):
+            return ""
+
+        for graph in graphs:
+            name = str(graph.get("name", ""))
+            title = str(graph.get("title", "")).lower()
+            vertical = str(graph.get("vertical_label", "")).lower()
+            if ("disk" in name or "disk" in title) and (
+                "temp" in name or "temp" in title or "celsius" in vertical
+            ):
+                return name
+
+        return ""
+
+    def _collect_disk_temp(self, entry: dict, temps: dict[str, float]) -> None:
+        """Extract a single disk's median temperature into temps."""
+        identifier = entry.get("identifier")
+        mean = entry.get("aggregations", {}).get("mean", {})
+        if not identifier or not isinstance(mean, dict) or not mean:
+            return
+
+        # Collect numeric mean values, discarding values outside sane bounds
+        # (0-100 °C) to avoid clearly invalid readings, then use the median to
+        # reduce the impact of transient spikes/outliers.
+        if valid_means := [
+            v
+            for v in mean.values()
+            if isinstance(v, (int, float)) and 0.0 <= v <= 100.0
+        ]:
+            temps[str(identifier)] = _median(valid_means)
 
     # ---------------------------
     #   get_vm
@@ -1179,6 +1410,57 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         else:
             self.ds["system_info"]["smb_connections"] = 0
+
+    # ---------------------------
+    #   get_ups
+    # ---------------------------
+    def get_ups(self) -> None:
+        """Get UPS readings from the netdata UPS graphs, if a UPS is present."""
+        if self._ups_graphs is None:
+            discovered = self._discover_ups_graphs()
+            if discovered is None:
+                return  # discovery failed; retry on the next update
+            self._ups_graphs = discovered
+
+        if not self._ups_graphs:
+            return
+
+        report_epoch = int(datetime.now(UTC).replace(microsecond=0).timestamp())
+        graph_query = {
+            "start": report_epoch - 90,
+            "end": report_epoch - 30,
+            "aggregate": True,
+        }
+
+        ups: dict[str, float] = {}
+        for graph_name, field in _UPS_GRAPHS.items():
+            if graph_name not in self._ups_graphs:
+                continue
+            graph_data = self.api.query(
+                "reporting.netdata_graph",
+                params=[graph_name, graph_query],
+            )
+            value = _ups_value(graph_data)
+            if value is not None:
+                ups[field] = value
+
+        self.ds["ups"] = ups
+
+    def _discover_ups_graphs(self) -> set[str] | None:
+        """Return the set of available UPS netdata graph names.
+
+        Returns an empty set when no UPS graphs exist (no UPS configured) and
+        ``None`` when the graph list could not be fetched (so it is retried).
+        """
+        graphs = self.api.query("reporting.netdata_graphs")
+        if not isinstance(graphs, list):
+            return None
+
+        return {
+            name
+            for graph in graphs
+            if (name := str(graph.get("name", ""))) in _UPS_GRAPHS
+        }
 
     # ---------------------------
     #   get_cloudsync
@@ -1361,9 +1643,11 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.config_entry.data.get("cronjob_skip_disabled", True),
         )
 
-        for uid, vals in list(self.ds["cronjob"].items()):
+        # Rebuild the dict instead of mutating it while iterating, so disabled
+        # cronjobs are dropped without needing a list() copy of the items.
+        filtered_cronjobs: dict = {}
+        for uid, vals in self.ds["cronjob"].items():
             if skip_disabled and not vals.get("enabled", True):
-                self.ds["cronjob"].pop(uid)
                 continue
 
             description = (vals.get("description") or "").strip()
@@ -1375,4 +1659,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 display_name = f"Cronjob {uid}"
 
-            self.ds["cronjob"][uid]["display_name"] = display_name
+            vals["display_name"] = display_name
+            filtered_cronjobs[uid] = vals
+
+        self.ds["cronjob"] = filtered_cronjobs

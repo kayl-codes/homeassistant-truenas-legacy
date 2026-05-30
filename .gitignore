@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Generated requirements (built in CI from the Pipfile)
+/requirements.txt
+/requirements_tests.txt
