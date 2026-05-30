@@ -17,6 +17,7 @@ from homeassistant.util.dt import utc_from_timestamp
 from .const import CONF_DATA_UNIT, DEFAULT_DATA_UNIT
 from .coordinator import TrueNASCoordinator
 from .entity import TrueNASEntity, async_add_entities
+from .helper import scaled_data_unit
 from .sensor_types import (  # noqa: F401
     SENSOR_SERVICES,
     SENSOR_TYPES,
@@ -70,10 +71,15 @@ class TrueNASSensor(TrueNASEntity, SensorEntity):
                     CONF_DATA_UNIT, DEFAULT_DATA_UNIT
                 ),
             )
-            if data_unit == "GiB":
-                self._attr_suggested_unit_of_measurement = UnitOfInformation.GIBIBYTES
-            else:
-                self._attr_suggested_unit_of_measurement = UnitOfInformation.GIGABYTES
+            value = (
+                self._data.get(self.entity_description.data_attribute)
+                if self._data
+                else None
+            )
+            unit, precision = scaled_data_unit(value, data_unit == "GiB")
+            self._attr_suggested_unit_of_measurement = unit
+            if precision is not None:
+                self._attr_suggested_display_precision = precision
 
     @property
     def native_value(self) -> StateType | date | datetime | Decimal:

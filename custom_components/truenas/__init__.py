@@ -6,14 +6,85 @@ from logging import getLogger
 
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfInformation
+from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_DATA_UNIT, DEFAULT_DATA_UNIT, DOMAIN, PLATFORMS
 from .coordinator import TrueNASCoordinator
+from .entity import format_unique_id
+from .helper import scaled_data_unit
+from .sensor_types import SENSOR_TYPES
 
 _LOGGER = getLogger(__name__)
+
+
+# ---------------------------
+#   _migrate_data_size_units
+# ---------------------------
+def _migrate_data_size_units(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    coordinator: TrueNASCoordinator,
+) -> None:
+    """Force each DATA_SIZE sensor's display unit from the base and magnitude.
+
+    The unit is derived from the configured base (GB/GiB) and the entity's
+    current value, then written directly to the entity registry on every startup
+    so the GB/GiB preference takes effect and the unit tracks the value (e.g. a
+    pool is shown in TiB once it exceeds 1 TiB).
+    """
+    data_unit = config_entry.options.get(
+        CONF_DATA_UNIT, config_entry.data.get(CONF_DATA_UNIT, DEFAULT_DATA_UNIT)
+    )
+    binary = data_unit == "GiB"
+    inst = config_entry.data[CONF_NAME]
+    ent_reg = er.async_get(hass)
+
+    for description in SENSOR_TYPES:
+        if getattr(description, "device_class", None) == SensorDeviceClass.DATA_SIZE:
+            _migrate_description(ent_reg, coordinator, inst, description, binary)
+
+
+def _migrate_description(ent_reg, coordinator, inst, description, binary) -> None:
+    """Force units for all entities produced by a single DATA_SIZE description."""
+    data = coordinator.ds.get(description.data_path)
+    if not isinstance(data, dict):
+        return
+
+    if not description.data_reference:
+        value = data.get(description.data_attribute)
+        _force_entity_unit(ent_reg, inst, description, None, value, binary)
+        return
+
+    for uid, vals in data.items():
+        if not isinstance(vals, dict):
+            continue
+        ref = vals.get(description.data_reference)
+        _force_entity_unit(
+            ent_reg,
+            inst,
+            description,
+            ref if ref is not None else uid,
+            vals.get(description.data_attribute),
+            binary,
+        )
+
+
+def _force_entity_unit(ent_reg, inst, description, reference, value, binary) -> None:
+    """Write the magnitude-appropriate display unit of one entity to the registry."""
+    entity_id = ent_reg.async_get_entity_id(
+        "sensor", DOMAIN, format_unique_id(inst, description.key, reference)
+    )
+    if entity_id is None:
+        return
+
+    unit, _ = scaled_data_unit(value, binary)
+    entry = ent_reg.async_get(entity_id)
+    options = dict(entry.options.get("sensor", {})) if entry else {}
+    if options.get("unit_of_measurement") != unit:
+        options["unit_of_measurement"] = unit
+        ent_reg.async_update_entity_options(entity_id, "sensor", options)
 
 
 # ---------------------------
@@ -25,29 +96,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     await coordinator.async_config_entry_first_refresh()
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = coordinator
 
-    # --- Auto-Migration for GB/GiB User Preference ---
-    data_unit = config_entry.options.get(
-        "data_unit", config_entry.data.get("data_unit", "GiB")
-    )
-
-    target_unit = (
-        UnitOfInformation.GIBIBYTES
-        if data_unit == "GiB"
-        else UnitOfInformation.GIGABYTES
-    )
-    ent_reg = er.async_get(hass)
-    for entity in er.async_entries_for_config_entry(ent_reg, config_entry.entry_id):
-        if (
-            entity.domain == "sensor"
-            and entity.original_device_class == SensorDeviceClass.DATA_SIZE
-        ):
-            sensor_options = dict(entity.options.get("sensor", {}))
-            if sensor_options.get("unit_of_measurement") != target_unit:
-                sensor_options["unit_of_measurement"] = target_unit
-                ent_reg.async_update_entity_options(
-                    entity.entity_id, "sensor", sensor_options
-                )
-    # -------------------------------------------------
+    _migrate_data_size_units(hass, config_entry, coordinator)
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     return True

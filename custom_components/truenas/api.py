@@ -6,7 +6,7 @@ import re
 import socket
 import ssl
 import time
-from logging import getLogger
+from logging import DEBUG, getLogger
 from threading import RLock
 from typing import Any
 
@@ -37,6 +37,26 @@ from .const import (
 )
 
 _LOGGER = getLogger(__name__)
+
+# Maximum number of characters of an API payload to include in debug logs.
+# Full payloads can be huge (e.g. pool.query with topology or app.query), so
+# they are summarized and truncated to keep debug logs readable.
+_LOG_PAYLOAD_LIMIT = 500
+
+
+def _summarize_payload(data: Any, limit: int = _LOG_PAYLOAD_LIMIT) -> str:
+    """Return a compact, length-bounded description of an API payload."""
+    if isinstance(data, list):
+        shape = f"list[{len(data)}]"
+    elif isinstance(data, dict):
+        shape = f"dict[{len(data)} keys]"
+    else:
+        shape = type(data).__name__
+
+    text = repr(data)
+    if len(text) > limit:
+        text = f"{text[:limit]}... (truncated, {len(text)} chars total)"
+    return f"{shape} {text}"
 
 
 # ---------------------------
@@ -908,7 +928,7 @@ class TrueNASAPI:
         try:
             _LOGGER.debug("TrueNAS %s query: %s, %s", self._host, service, params)
 
-            # Sonar-Fix (S3358): Flaches, unverschachteltes Statement statt Einzeiler
+            # Flat, unnested statement instead of a one-liner (Sonar S3358).
             if params is None:
                 clean_params = []
             elif isinstance(params, list):
@@ -940,14 +960,18 @@ class TrueNASAPI:
             if res is not None and self._handle_query_error(res):
                 return None
 
-            # Präzise Prüfung: Erlaubt leere Container wie [] oder {}
+            # Precise check: allows empty containers such as [] or {}.
             if res is None or "result" not in res:
                 return None
 
             data = res.get("result")
-            _LOGGER.debug(
-                "TrueNAS %s query (%s) response: %s", self._host, service, data
-            )
+            if _LOGGER.isEnabledFor(DEBUG):
+                _LOGGER.debug(
+                    "TrueNAS %s query (%s) response: %s",
+                    self._host,
+                    service,
+                    _summarize_payload(data),
+                )
         except (OSError, WebSocketException) as e:
             _LOGGER.warning(
                 'TrueNAS %s unable to fetch data "%s" (%s)',
