@@ -126,8 +126,20 @@ class TrueNASAppUpdate(TrueNASEntity, UpdateEntity):
 
     @property
     def latest_version(self) -> str | None:
-        """Latest version available for install."""
-        return self._data.get("latest_version")
+        """Latest version available for install.
+
+        Home Assistant shows an update when latest != installed. For custom/
+        compose apps there is no catalog version (latest_version is "unknown"),
+        so reflect availability explicitly when an image update is pending.
+        """
+        installed = self._data.get("version")
+        if not self._data.get("update_available"):
+            return installed
+
+        latest = self._data.get("latest_version")
+        if not latest or latest in ("unknown", installed):
+            return f"{installed} (image update)"
+        return latest
 
     async def async_install(self, _version: str, backup: bool, **kwargs: Any) -> None:
         """Install an update."""

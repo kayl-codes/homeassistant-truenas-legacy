@@ -1360,7 +1360,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         for uid, vals in self.ds["vm"].items():
-            self.ds["vm"][uid]["memory"] = round(vals["memory"] / 1024)
+            # "or 0" guards against a null memory value (e.g. some instance
+            # types report None), which would raise a TypeError on division.
+            self.ds["vm"][uid]["memory"] = round((vals.get("memory") or 0) / 1024)
             self.ds["vm"][uid]["running"] = vals["status"] == "RUNNING"
 
     # ---------------------------
@@ -1622,7 +1624,32 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         for uid, vals in self.ds["app"].items():
-            self.ds["app"][uid]["running"] = vals["state"] == "RUNNING"
+            vals["running"] = vals["state"] == "RUNNING"
+            # Custom/compose apps have no catalog upgrade; their updates are
+            # surfaced via image_updates_available. Treat either as an update.
+            vals["update_available"] = bool(vals.get("update_available")) or bool(
+                vals.get("image_updates_available")
+            )
+
+        self._clear_finished_app_updates()
+
+    def _clear_finished_app_updates(self) -> None:
+        """Reset update_jobid once an app's upgrade job is no longer running.
+
+        Otherwise the update entity stays "in progress" after the first update
+        and the app cannot be updated again until Home Assistant restarts.
+        """
+        for vals in self.ds["app"].values():
+            job_id = vals.get("update_jobid")
+            if not job_id:
+                continue
+
+            jobs = self.api.query("core.get_jobs", params=[[["id", "=", job_id]]])
+            state = None
+            if isinstance(jobs, list) and jobs and isinstance(jobs[0], dict):
+                state = jobs[0].get("state")
+            if state not in ("RUNNING", "WAITING"):
+                vals["update_jobid"] = 0
 
     # ---------------------------
     #   get_cronjob
