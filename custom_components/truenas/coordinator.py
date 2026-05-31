@@ -32,6 +32,60 @@ _LOGGER = logging.getLogger(__name__)
 _NETDATA_GRAPH = "reporting.netdata_graph"
 _NETDATA_GRAPHS = "reporting.netdata_graphs"
 
+# Field mapping shared by ``pool.query`` and ``boot.get_state`` (the boot-pool
+# reports the same top-level shape, so both are parsed with these lists).
+_POOL_VALS = [
+    {"name": "guid", "default": 0},
+    {"name": "id", "default": 0},
+    {"name": "name", "default": "unknown"},
+    {"name": "path", "default": "unknown"},
+    {"name": "status", "default": "unknown"},
+    {"name": "healthy", "type": "bool", "default": False},
+    {"name": "is_decrypted", "type": "bool", "default": False},
+    {"name": "size", "default": 0},
+    {"name": "allocated", "default": 0},
+    {"name": "free", "default": 0},
+    {"name": "fragmentation", "default": 0},
+    {
+        "name": "autotrim",
+        "source": "autotrim/parsed",
+        "type": "bool",
+        "default": False,
+    },
+    {
+        "name": "scan_function",
+        "source": "scan/function",
+        "default": "unknown",
+    },
+    {"name": "scrub_state", "source": "scan/state", "default": "unknown"},
+    {
+        "name": "scrub_start",
+        "source": "scan/start_time/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {
+        "name": "scrub_end",
+        "source": "scan/end_time/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {
+        "name": "scrub_secs_left",
+        "source": "scan/total_secs_left",
+        "default": 0,
+    },
+]
+_POOL_ENSURE_VALS = [
+    {"name": "available", "default": 0.0},
+    {"name": "total", "default": 0.0},
+    {"name": "usage", "default": 0.0},
+    {"name": "errors", "default": 0},
+    {"name": "read_errors", "default": 0},
+    {"name": "write_errors", "default": 0},
+    {"name": "checksum_errors", "default": 0},
+]
+
 
 # ---------------------------
 #   _stat_name_similar
@@ -859,62 +913,14 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data=self.ds["pool"],
             source=raw_pools,
             key="guid",
-            vals=[
-                {"name": "guid", "default": 0},
-                {"name": "id", "default": 0},
-                {"name": "name", "default": "unknown"},
-                {"name": "path", "default": "unknown"},
-                {"name": "status", "default": "unknown"},
-                {"name": "healthy", "type": "bool", "default": False},
-                {"name": "is_decrypted", "type": "bool", "default": False},
-                {"name": "size", "default": 0},
-                {"name": "allocated", "default": 0},
-                {"name": "free", "default": 0},
-                {"name": "fragmentation", "default": 0},
-                {
-                    "name": "autotrim",
-                    "source": "autotrim/parsed",
-                    "type": "bool",
-                    "default": False,
-                },
-                {
-                    "name": "scan_function",
-                    "source": "scan/function",
-                    "default": "unknown",
-                },
-                {"name": "scrub_state", "source": "scan/state", "default": "unknown"},
-                {
-                    "name": "scrub_start",
-                    "source": "scan/start_time/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "scrub_end",
-                    "source": "scan/end_time/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "scrub_secs_left",
-                    "source": "scan/total_secs_left",
-                    "default": 0,
-                },
-            ],
-            ensure_vals=[
-                {"name": "available", "default": 0.0},
-                {"name": "total", "default": 0.0},
-                {"name": "usage", "default": 0.0},
-                {"name": "errors", "default": 0},
-                {"name": "read_errors", "default": 0},
-                {"name": "write_errors", "default": 0},
-                {"name": "checksum_errors", "default": 0},
-            ],
+            vals=_POOL_VALS,
+            ensure_vals=_POOL_ENSURE_VALS,
         )
         if not self.api.connected():
             return
 
         self._apply_pool_errors(raw_pools)
+        self._add_boot_pool()
 
         # Build a lookup of datasets by their mountpoint so a pool's free/total
         # space can be derived from its root dataset. Matching the pool "path"
@@ -959,6 +965,34 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # pool.query reports fragmentation as a percentage string (e.g. "48").
             self.ds["pool"][uid]["fragmentation"] = _to_int(vals.get("fragmentation"))
+
+    # ---------------------------
+    #   _add_boot_pool
+    # ---------------------------
+    def _add_boot_pool(self) -> None:
+        """Add the boot-pool to the pool data.
+
+        ``pool.query`` does not include the boot-pool; ``boot.get_state``
+        reports it with the same top-level shape (name/status/healthy/scan/
+        size/allocated/free/fragmentation), so it is parsed with the same field
+        mapping. It has no root dataset, so the capacity falls back to the
+        pool's own free/size (handled in ``_apply_pool_capacity``).
+        """
+        raw_boot = self.api.query("boot.get_state")
+        if not isinstance(raw_boot, dict) or not raw_boot:
+            return
+
+        # boot.get_state carries no guid/id; use the pool name as a stable key.
+        raw_boot.setdefault("guid", raw_boot.get("name", "boot-pool"))
+        raw_boot.setdefault("id", raw_boot.get("name", "boot-pool"))
+        self.ds["pool"] = parse_api(
+            data=self.ds["pool"],
+            source=raw_boot,
+            key="guid",
+            vals=_POOL_VALS,
+            ensure_vals=_POOL_ENSURE_VALS,
+        )
+        self._apply_pool_errors([raw_boot])
 
     # ---------------------------
     #   _apply_pool_capacity
