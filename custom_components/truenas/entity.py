@@ -93,6 +93,20 @@ def _is_uid_excluded(entity_description, vals) -> bool:
     return isinstance(vals, dict) and vals.get(key) == value
 
 
+async def _async_create_referenced_entities(
+    platform, hass: HomeAssistant, coordinator, entity_description, data, dispatcher
+) -> None:
+    """Create entities for each referenced object (uid) of a description."""
+    for uid in data:
+        # data is a mapping of uid -> values for reference descriptions;
+        # fall back to treating the iterated item itself as the values.
+        vals = data[uid] if isinstance(data, dict) else uid
+        if _is_uid_excluded(entity_description, vals):
+            continue
+        obj = dispatcher[entity_description.func](coordinator, entity_description, uid)
+        await _async_ensure_entity(platform, hass, obj)
+
+
 async def _async_create_entities(
     platform, hass: HomeAssistant, coordinator, descriptions, dispatcher
 ) -> None:
@@ -103,16 +117,9 @@ async def _async_create_entities(
             continue
 
         if entity_description.data_reference:
-            for uid in data:
-                # data is a mapping of uid -> values for reference descriptions;
-                # fall back to treating the iterated item itself as the values.
-                vals = data[uid] if isinstance(data, dict) else uid
-                if _is_uid_excluded(entity_description, vals):
-                    continue
-                obj = dispatcher[entity_description.func](
-                    coordinator, entity_description, uid
-                )
-                await _async_ensure_entity(platform, hass, obj)
+            await _async_create_referenced_entities(
+                platform, hass, coordinator, entity_description, data, dispatcher
+            )
         elif not _skip_keyless_description(entity_description, data):
             obj = dispatcher[entity_description.func](coordinator, entity_description)
             await _async_ensure_entity(platform, hass, obj)
