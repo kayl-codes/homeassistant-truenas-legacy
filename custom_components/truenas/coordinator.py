@@ -23,6 +23,7 @@ from .apiparser import parse_api
 from .const import (
     DOMAIN,
     KILOBITS_TO_KIBIBYTES_FACTOR,
+    LINK_STATE_UP,
     UPTIME_EPOCH_TOLERANCE_SECONDS,
 )
 
@@ -529,6 +530,10 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "tx", "default": 0},
             ],
         )
+
+        # Derive a boolean link state for the connectivity binary sensor.
+        for interface in self.ds["interface"].values():
+            interface["link_up"] = interface.get("link_state") == LINK_STATE_UP
 
     # ---------------------------
     #   get_updatecheck
