@@ -138,7 +138,7 @@ class TrueNASAppUpdate(TrueNASEntity, UpdateEntity):
 
         latest = self._data.get("latest_version")
         if not latest or latest in ("unknown", installed):
-            return f"{installed} (image update)"
+            return f"{installed} (image update)" if installed else "image update"
         return latest
 
     async def async_install(self, _version: str, backup: bool, **kwargs: Any) -> None:

@@ -1360,9 +1360,13 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         for uid, vals in self.ds["vm"].items():
-            # "or 0" guards against a null memory value (e.g. some instance
-            # types report None), which would raise a TypeError on division.
-            self.ds["vm"][uid]["memory"] = round((vals.get("memory") or 0) / 1024)
+            # Only substitute 0 for a null memory value (e.g. some instance
+            # types report None), which would raise a TypeError on division;
+            # other invalid types should still surface.
+            memory = vals.get("memory")
+            if memory is None:
+                memory = 0
+            self.ds["vm"][uid]["memory"] = round(memory / 1024)
             self.ds["vm"][uid]["running"] = vals["status"] == "RUNNING"
 
     # ---------------------------
