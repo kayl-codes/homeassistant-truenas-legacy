@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import CONF_DATA_UNIT, DEFAULT_DATA_UNIT, DOMAIN, PLATFORMS
 from .coordinator import TrueNASCoordinator
@@ -99,6 +100,15 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     _migrate_data_size_units(hass, config_entry, coordinator)
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+
+    # Re-run entity discovery on every coordinator refresh so entities for newly
+    # appearing objects (e.g. a network interface coming up, a new pool/dataset)
+    # are created without requiring an integration reload.
+    config_entry.async_on_unload(
+        coordinator.async_add_listener(
+            lambda: async_dispatcher_send(hass, "update_sensors")
+        )
+    )
     return True
 
 

@@ -78,6 +78,20 @@ def _skip_keyless_description(entity_description, data) -> bool:
     return bool(attr_name) and data.get(attr_name) is None
 
 
+def _is_uid_excluded(entity_description, vals) -> bool:
+    """Return True if a referenced object is excluded from entity creation.
+
+    Honors an optional ``data_exclude`` (key, value) on the description, e.g. to
+    skip traffic sensors for a network interface whose link is down.
+    """
+    data_exclude = getattr(entity_description, "data_exclude", None)
+    if not data_exclude:
+        return False
+
+    key, value = data_exclude
+    return isinstance(vals, dict) and vals.get(key) == value
+
+
 async def _async_create_entities(
     platform, hass: HomeAssistant, coordinator, descriptions, dispatcher
 ) -> None:
@@ -89,6 +103,8 @@ async def _async_create_entities(
 
         if entity_description.data_reference:
             for uid in data:
+                if _is_uid_excluded(entity_description, data.get(uid)):
+                    continue
                 obj = dispatcher[entity_description.func](
                     coordinator, entity_description, uid
                 )
