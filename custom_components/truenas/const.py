@@ -13,6 +13,10 @@ ATTRIBUTION = "Data provided by TrueNAS integration"
 # Dispatcher signal used to (re)discover entities on each coordinator refresh.
 SIGNAL_UPDATE_SENSORS = "update_sensors"
 
+# TrueNAS interface link states (from interface.query -> state/link_state).
+LINK_STATE_UP = "LINK_STATE_UP"
+LINK_STATE_DOWN = "LINK_STATE_DOWN"
+
 DEFAULT_HOST = "trueas.local"
 
 # Conversion factor: kilobits per second to kibibytes per second

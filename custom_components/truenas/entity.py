@@ -104,7 +104,10 @@ async def _async_create_entities(
 
         if entity_description.data_reference:
             for uid in data:
-                if _is_uid_excluded(entity_description, data.get(uid)):
+                # data is a mapping of uid -> values for reference descriptions;
+                # fall back to treating the iterated item itself as the values.
+                vals = data[uid] if isinstance(data, dict) else uid
+                if _is_uid_excluded(entity_description, vals):
                     continue
                 obj = dispatcher[entity_description.func](
                     coordinator, entity_description, uid

@@ -109,10 +109,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
 
     # Re-run entity discovery on every coordinator refresh so entities for newly
     # appearing objects (e.g. a network interface coming up, a new pool/dataset)
-    # are created without requiring an integration reload.
+    # are created without requiring an integration reload. The discovery handler
+    # (entity.async_add_entities) expects the coordinator as its argument and does
+    # not request another refresh, so this does not create a refresh loop.
     @callback
     def _handle_coordinator_refresh() -> None:
-        async_dispatcher_send(hass, SIGNAL_UPDATE_SENSORS)
+        async_dispatcher_send(hass, SIGNAL_UPDATE_SENSORS, coordinator)
 
     config_entry.async_on_unload(
         coordinator.async_add_listener(_handle_coordinator_refresh)

@@ -24,6 +24,7 @@ from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
     ICON_GAUGE,
+    LINK_STATE_DOWN,
     SCHEMA_SERVICE_CLOUDSYNC_ABORT,
     SCHEMA_SERVICE_CLOUDSYNC_RUN,
     SCHEMA_SERVICE_DATASET_SNAPSHOT,
@@ -565,7 +566,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
         data_uid=None,
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_NETWORK,
-        data_exclude=("link_state", "LINK_STATE_DOWN"),
+        data_exclude=("link_state", LINK_STATE_DOWN),
     ),
     TrueNASSensorEntityDescription(
         key="traffic_tx",
@@ -584,7 +585,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
         data_uid=None,
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_NETWORK,
-        data_exclude=("link_state", "LINK_STATE_DOWN"),
+        data_exclude=("link_state", LINK_STATE_DOWN),
     ),
     TrueNASSensorEntityDescription(
         key="ups_charge",
