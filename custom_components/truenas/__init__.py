@@ -7,11 +7,17 @@ from logging import getLogger
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import CONF_DATA_UNIT, DEFAULT_DATA_UNIT, DOMAIN, PLATFORMS
+from .const import (
+    CONF_DATA_UNIT,
+    DEFAULT_DATA_UNIT,
+    DOMAIN,
+    PLATFORMS,
+    SIGNAL_UPDATE_SENSORS,
+)
 from .coordinator import TrueNASCoordinator
 from .entity import format_unique_id
 from .helper import scaled_data_unit
@@ -104,10 +110,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     # Re-run entity discovery on every coordinator refresh so entities for newly
     # appearing objects (e.g. a network interface coming up, a new pool/dataset)
     # are created without requiring an integration reload.
+    @callback
+    def _handle_coordinator_refresh() -> None:
+        async_dispatcher_send(hass, SIGNAL_UPDATE_SENSORS)
+
     config_entry.async_on_unload(
-        coordinator.async_add_listener(
-            lambda: async_dispatcher_send(hass, "update_sensors")
-        )
+        coordinator.async_add_listener(_handle_coordinator_refresh)
     )
     return True
 

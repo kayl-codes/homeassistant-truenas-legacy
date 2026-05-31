@@ -977,8 +977,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         instead of the raw pool.query capacity that counts parity disks.
         """
         if root_dataset:
-            available = root_dataset.get("available", 0)
-            used = root_dataset.get("used", 0)
+            # Use "or 0" so a null value (not just a missing key) is handled.
+            available = root_dataset.get("available") or 0
+            used = root_dataset.get("used") or 0
             total = available + used
             self.ds["pool"][uid]["size"] = total
             self.ds["pool"][uid]["allocated"] = used

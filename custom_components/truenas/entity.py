@@ -23,6 +23,7 @@ from homeassistant.util import slugify
 from .const import (
     ATTRIBUTION,
     DOMAIN,
+    SIGNAL_UPDATE_SENSORS,
 )
 from .coordinator import TrueNASCoordinator
 from .helper import format_attribute
@@ -135,7 +136,9 @@ async def async_add_entities(
 
     await async_update_controller(hass.data[DOMAIN][config_entry.entry_id])
 
-    unsub = async_dispatcher_connect(hass, "update_sensors", async_update_controller)
+    unsub = async_dispatcher_connect(
+        hass, SIGNAL_UPDATE_SENSORS, async_update_controller
+    )
     config_entry.async_on_unload(unsub)
 
 

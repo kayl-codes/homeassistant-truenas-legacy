@@ -10,6 +10,9 @@ DOMAIN = "truenas"
 DEFAULT_NAME = "root"
 ATTRIBUTION = "Data provided by TrueNAS integration"
 
+# Dispatcher signal used to (re)discover entities on each coordinator refresh.
+SIGNAL_UPDATE_SENSORS = "update_sensors"
+
 DEFAULT_HOST = "trueas.local"
 
 # Conversion factor: kilobits per second to kibibytes per second
