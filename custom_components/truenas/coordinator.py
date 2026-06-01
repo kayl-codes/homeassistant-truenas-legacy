@@ -286,7 +286,6 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise UpdateFailed(f"Error connecting to TrueNAS: {e}") from e
 
         jobs = [
-            self.get_systeminfo,
             self.get_systemstats,
             self.get_service,
             self.get_disk,
@@ -313,6 +312,13 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         getattr(job, "__name__", job),
                         err,
                     )
+
+            # get_systeminfo populates ds["interface"] and _is_virtual, which
+            # get_systemstats reads to decide whether to fetch the interface
+            # graph (and to skip cputemp on VMs). Run it before the concurrent
+            # jobs so the first cycle does not skip the interface graph, which
+            # would leave RX/TX at 0 until the next poll.
+            await _run_job(self.get_systeminfo)
 
             await asyncio.gather(*(_run_job(job) for job in jobs))
 
