@@ -20,7 +20,7 @@ from .const import (
     SIGNAL_UPDATE_SENSORS,
 )
 from .coordinator import TrueNASCoordinator
-from .entity import format_unique_id
+from .entity import _is_uid_excluded, format_unique_id
 from .helper import scaled_data_unit
 from .sensor_types import SENSOR_TYPES
 from .switch_types import SENSOR_TYPES as SWITCH_SENSOR_TYPES
@@ -114,12 +114,12 @@ def _collect_active_unique_ids(
 ) -> tuple[set[str], set[str]]:
     """Return (active unique_ids, live bases) for the current TrueNAS objects.
 
-    ``active`` is every unique_id that legitimately exists right now, built from
-    the objects in the coordinator data and deliberately ignoring display-only
-    filters such as the down-interface exclusion (so a NIC that is merely down
-    keeps its excluded traffic sensors). ``live bases`` are the per-description id
-    prefixes whose data domain currently holds data, so cleanup never wipes a
-    whole group on a transient empty fetch.
+    ``active`` is every unique_id the integration would create right now. It
+    mirrors entity creation, including the ``data_exclude`` filter, so e.g. the
+    traffic sensors of a down interface are *not* active and get cleaned up
+    (their link binary sensor, which has no exclude, stays). ``live bases`` are
+    the per-description id prefixes whose data domain currently holds data, so
+    cleanup never wipes a whole group on a transient empty fetch.
     """
     active: set[str] = set()
     live_bases: set[str] = set()
@@ -137,6 +137,8 @@ def _collect_active_unique_ids(
 
         live_bases.add(base)
         for uid, vals in data.items():
+            if _is_uid_excluded(description, vals):
+                continue
             ref = (
                 vals.get(description.data_reference) if isinstance(vals, dict) else None
             )
@@ -151,12 +153,14 @@ def _cleanup_orphaned_entities(
     config_entry: ConfigEntry,
     coordinator: TrueNASCoordinator,
 ) -> None:
-    """Remove registry entities whose underlying TrueNAS object no longer exists.
+    """Remove registry entities the integration would no longer create.
 
-    Only true orphans are removed: an entity is deleted when it is not in the
-    active set yet belongs to a data domain that currently holds data. A NIC that
-    is merely down keeps its (excluded) traffic sensors, and a transient empty
-    fetch of a whole domain never wipes the corresponding group.
+    An entity is deleted when it is not in the active set yet belongs to a data
+    domain that currently holds data. This covers both true orphans (the object
+    is gone) and entities filtered out by ``data_exclude`` (e.g. traffic sensors
+    of a down interface). A transient empty fetch of a whole domain never wipes
+    the corresponding group, and cleanup is skipped unless the last update
+    succeeded.
     """
     if not coordinator.last_update_success:
         return
