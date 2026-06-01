@@ -17,6 +17,9 @@ from .entity import TrueNASEntity, async_add_entities
 
 _LOGGER = getLogger(__name__)
 
+_LOG_SERVICE_INVALID = "Service %s (%s) invalid"
+_LOG_SERVICE_NOT_RUNNING = "Service %s (%s) is not running"
+
 
 # ---------------------------
 #   async_setup_entry
@@ -140,9 +143,7 @@ class TrueNASServiceBinarySensor(TrueNASBinarySensor):
         tmp_service = await self._get_service()
 
         if not isinstance(tmp_service, dict) or "state" not in tmp_service:
-            _LOGGER.error(
-                "Service %s (%s) invalid", self._data["service"], self._data["id"]
-            )
+            _LOGGER.error(_LOG_SERVICE_INVALID, self._data["service"], self._data["id"])
             return
 
         if tmp_service["state"] != "STOPPED":
@@ -166,14 +167,12 @@ class TrueNASServiceBinarySensor(TrueNASBinarySensor):
         tmp_service = await self._get_service()
 
         if not isinstance(tmp_service, dict) or "state" not in tmp_service:
-            _LOGGER.error(
-                "Service %s (%s) invalid", self._data["service"], self._data["id"]
-            )
+            _LOGGER.error(_LOG_SERVICE_INVALID, self._data["service"], self._data["id"])
             return
 
         if tmp_service["state"] == "STOPPED":
             _LOGGER.warning(
-                "Service %s (%s) is not running",
+                _LOG_SERVICE_NOT_RUNNING,
                 self._data["service"],
                 self._data["id"],
             )
@@ -191,14 +190,12 @@ class TrueNASServiceBinarySensor(TrueNASBinarySensor):
         tmp_service = await self._get_service()
 
         if not isinstance(tmp_service, dict) or "state" not in tmp_service:
-            _LOGGER.error(
-                "Service %s (%s) invalid", self._data["service"], self._data["id"]
-            )
+            _LOGGER.error(_LOG_SERVICE_INVALID, self._data["service"], self._data["id"])
             return
 
         if tmp_service["state"] == "STOPPED":
             _LOGGER.warning(
-                "Service %s (%s) is not running",
+                _LOG_SERVICE_NOT_RUNNING,
                 self._data["service"],
                 self._data["id"],
             )
@@ -217,14 +214,12 @@ class TrueNASServiceBinarySensor(TrueNASBinarySensor):
         tmp_service = await self._get_service()
 
         if not isinstance(tmp_service, dict) or "state" not in tmp_service:
-            _LOGGER.error(
-                "Service %s (%s) invalid", self._data["service"], self._data["id"]
-            )
+            _LOGGER.error(_LOG_SERVICE_INVALID, self._data["service"], self._data["id"])
             return
 
         if tmp_service["state"] == "STOPPED":
             _LOGGER.warning(
-                "Service %s (%s) is not running",
+                _LOG_SERVICE_NOT_RUNNING,
                 self._data["service"],
                 self._data["id"],
             )

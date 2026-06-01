@@ -58,5 +58,7 @@ jobs:
           python3 -m pip install setuptools wheel PyGithub
 
       - name: Update release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 ${{ github.workspace }}/.github/generate_releasenotes.py --token ${{ secrets.GITHUB_TOKEN }} --release yes --tag ${{ github.ref }}
+          python3 ${{ github.workspace }}/.github/generate_releasenotes.py --token "$GITHUB_TOKEN" --release yes --tag "${{ github.ref }}"
