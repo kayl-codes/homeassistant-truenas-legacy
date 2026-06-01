@@ -13,7 +13,7 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Get version number
         run: |
@@ -30,7 +30,7 @@ jobs:
           cd ${{ github.workspace }}/custom_components/truenas
           zip truenas.zip -r ./
       - name: Upload zip to release
-        uses: svenstaro/upload-release-action@v1-release
+        uses: svenstaro/upload-release-action@14569a2d348419d066e34e5dfa65071ecd30b64b # v1-release
 
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
@@ -46,10 +46,10 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v5.4.0
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
         with:
           python-version: 3.13
 
