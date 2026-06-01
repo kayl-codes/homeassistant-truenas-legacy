@@ -150,6 +150,28 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self.truenas_config: dict[str, Any] = {}
 
+    async def _validate_connection(
+        self, config: dict[str, Any], errors: dict[str, str]
+    ) -> None:
+        """Test the API connection and record a mapped error on failure."""
+        api = await self.hass.async_add_executor_job(
+            TrueNASAPI,
+            config[CONF_HOST],
+            config[CONF_API_KEY],
+            config[CONF_VERIFY_SSL],
+        )
+        conn, errorcode = await self.hass.async_add_executor_job(api.connection_test)
+        await self.hass.async_add_executor_job(api.disconnect)
+
+        if not conn:
+            ha_error = _map_error_to_ha(errorcode)
+            errors[CONF_HOST] = ha_error
+            _LOGGER.error(
+                "TrueNAS connection error (%s) mapped to HA error '%s'",
+                errorcode,
+                ha_error,
+            )
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -179,28 +201,7 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "name_exists"
 
             if not errors:
-                # Test API connection
-                api = await self.hass.async_add_executor_job(
-                    TrueNASAPI,
-                    truenas_config[CONF_HOST],
-                    truenas_config[CONF_API_KEY],
-                    truenas_config[CONF_VERIFY_SSL],
-                )
-
-                conn, errorcode = await self.hass.async_add_executor_job(
-                    api.connection_test
-                )
-
-                await self.hass.async_add_executor_job(api.disconnect)
-
-                if not conn:
-                    ha_error = _map_error_to_ha(errorcode)
-                    errors[CONF_HOST] = ha_error
-                    _LOGGER.error(
-                        "TrueNAS connection error (%s) mapped to HA error '%s'",
-                        errorcode,
-                        ha_error,
-                    )
+                await self._validate_connection(truenas_config, errors)
 
             # Save instance
             if not errors:
@@ -245,28 +246,7 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
             if connection_changed:
-                # Test API connection
-                api = await self.hass.async_add_executor_job(
-                    TrueNASAPI,
-                    truenas_config[CONF_HOST],
-                    truenas_config[CONF_API_KEY],
-                    truenas_config[CONF_VERIFY_SSL],
-                )
-
-                conn, errorcode = await self.hass.async_add_executor_job(
-                    api.connection_test
-                )
-
-                await self.hass.async_add_executor_job(api.disconnect)
-
-                if not conn:
-                    ha_error = _map_error_to_ha(errorcode)
-                    errors[CONF_HOST] = ha_error
-                    _LOGGER.error(
-                        "TrueNAS connection error (%s) mapped to HA error '%s'",
-                        errorcode,
-                        ha_error,
-                    )
+                await self._validate_connection(truenas_config, errors)
 
             # Save instance
             if not errors:

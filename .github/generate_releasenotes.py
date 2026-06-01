@@ -40,6 +40,18 @@ CHANGES = """
 
 CHANGE = "- [{line}]({link}) @{author}\n"
 NOCHANGE = "_No changes in this release._"
+REPO_NAME = "kayl-codes/homeassistant-truenas"
+
+# Commit-message markers that exclude a commit from the generated changelog.
+_SKIP_MARKERS = (
+    "flake",
+    " workflow",
+    " test",
+    "docs",
+    "dev debug",
+    "Merge branch ",
+    "Merge pull request ",
+)
 
 GITHUB = Github(sys.argv[2])
 
@@ -59,11 +71,11 @@ def new_commits(repo, sha):
 
 def last_integration_release(github, skip=True):
     """Return last release."""
-    repo = github.get_repo("kayl-codes/homeassistant-truenas")
+    repo = github.get_repo(REPO_NAME)
     tag_sha = None
     data = {}
     tags = list(repo.get_tags())
-    reg = "(v|^)?(\\d+\\.)?(\\d+\\.)?(\\*|\\d+)$"
+    reg = r"^v?\d+(\.\d+){0,2}$"
     if tags:
         for tag in tags:
             tag_name = tag.name
@@ -79,43 +91,26 @@ def last_integration_release(github, skip=True):
 
 
 def get_integration_commits(github, skip=True):
-    changes = ""
-    repo = github.get_repo("kayl-codes/homeassistant-truenas")
+    repo = github.get_repo(REPO_NAME)
     commits = new_commits(repo, last_integration_release(github, skip)["tag_sha"])
-
     if not commits:
-        changes = NOCHANGE
-    else:
-        for commit in commits:
-            msg = repo.get_git_commit(commit.sha).message
-            if "flake" in msg:
-                continue
-            if " workflow" in msg:
-                continue
-            if " test" in msg:
-                continue
-            if "docs" in msg:
-                continue
-            if "dev debug" in msg:
-                continue
-            if "Merge branch " in msg:
-                continue
-            if "Merge pull request " in msg:
-                continue
-            if "\n" in msg:
-                msg = msg.split("\n")[0]
-            if commit.author:
-                ath = commit.author.login
-            else:
-                ath = "Unknown"
-            changes += CHANGE.format(line=msg, link=commit.html_url, author=ath)
+        return NOCHANGE
+
+    changes = ""
+    for commit in commits:
+        msg = repo.get_git_commit(commit.sha).message
+        if any(marker in msg for marker in _SKIP_MARKERS):
+            continue
+        msg = msg.split("\n", 1)[0]
+        ath = commit.author.login if commit.author else "Unknown"
+        changes += CHANGE.format(line=msg, link=commit.html_url, author=ath)
 
     return changes
 
 
 # Update release notes:
 UPDATERELEASE = str(sys.argv[4])
-REPO = GITHUB.get_repo("kayl-codes/homeassistant-truenas")
+REPO = GITHUB.get_repo(REPO_NAME)
 if UPDATERELEASE == "yes":
     VERSION = str(sys.argv[6]).replace("refs/tags/", "")
     RELEASE = REPO.get_release(VERSION)

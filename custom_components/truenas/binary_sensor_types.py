@@ -68,6 +68,15 @@ DEVICE_ATTRIBUTES_APP = (
     "portal",
 )
 
+DEVICE_ATTRIBUTES_NETWORK = (
+    "description",
+    "mtu",
+    "link_state",
+    "active_media_type",
+    "active_media_subtype",
+    "link_address",
+)
+
 
 @dataclass
 class TrueNASBinarySensorEntityDescription(BinarySensorEntityDescription):
@@ -163,6 +172,19 @@ SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_APP,
         func="TrueNASAppBinarySensor",
+    ),
+    TrueNASBinarySensorEntityDescription(
+        key="interface",
+        name="Link",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        ha_group="Network",
+        data_path="interface",
+        data_is_on="link_up",
+        data_name="name",
+        data_uid=None,
+        data_reference="id",
+        data_attributes_list=DEVICE_ATTRIBUTES_NETWORK,
     ),
 )
 

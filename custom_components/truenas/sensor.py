@@ -40,6 +40,8 @@ async def async_setup_entry(
         "TrueNASUptimeSensor": TrueNASUptimeSensor,
         "TrueNASCloudsyncSensor": TrueNASCloudsyncSensor,
         "TrueNASDatasetSensor": TrueNASDatasetSensor,
+        "TrueNASRsyncSensor": TrueNASRsyncSensor,
+        "TrueNASReplicationSensor": TrueNASReplicationSensor,
     }
     await async_add_entities(hass, config_entry, dispatcher)
 
@@ -152,6 +154,54 @@ class TrueNASDatasetSensor(TrueNASSensor):
                 "zfs.snapshot.create",
                 payload,
             )
+
+
+# ---------------------------
+#   TrueNASRsyncSensor
+# ---------------------------
+class TrueNASRsyncSensor(TrueNASSensor):
+    """Define a TrueNAS Rsync task sensor."""
+
+    async def start(self) -> None:
+        """Run an rsync task."""
+        if self._data.get("state") in ("RUNNING", "WAITING"):
+            _LOGGER.warning(
+                "Rsync task %s (%s) is already running",
+                self._data.get("desc"),
+                self._data.get("id"),
+            )
+            return
+
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "rsynctask.run",
+            [self._data["id"]],
+        )
+        await self.coordinator.async_request_refresh()
+
+
+# ---------------------------
+#   TrueNASReplicationSensor
+# ---------------------------
+class TrueNASReplicationSensor(TrueNASSensor):
+    """Define a TrueNAS Replication task sensor."""
+
+    async def start(self) -> None:
+        """Run a replication task."""
+        if self._data.get("state") in ("RUNNING", "WAITING"):
+            _LOGGER.warning(
+                "Replication %s (%s) is already running",
+                self._data.get("name"),
+                self._data.get("id"),
+            )
+            return
+
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "replication.run",
+            [self._data["id"]],
+        )
+        await self.coordinator.async_request_refresh()
 
 
 # ---------------------------

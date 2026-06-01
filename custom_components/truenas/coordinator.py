@@ -23,6 +23,7 @@ from .apiparser import parse_api
 from .const import (
     DOMAIN,
     KILOBITS_TO_KIBIBYTES_FACTOR,
+    LINK_STATE_UP,
     UPTIME_EPOCH_TOLERANCE_SECONDS,
 )
 
@@ -31,6 +32,83 @@ _LOGGER = logging.getLogger(__name__)
 # TrueNAS reporting (netdata) API method names.
 _NETDATA_GRAPH = "reporting.netdata_graph"
 _NETDATA_GRAPHS = "reporting.netdata_graphs"
+
+# Field mapping shared by ``pool.query`` and ``boot.get_state`` (the boot-pool
+# reports the same top-level shape, so both are parsed with these lists).
+_POOL_VALS = [
+    {"name": "guid", "default": 0},
+    {"name": "id", "default": 0},
+    {"name": "name", "default": "unknown"},
+    {"name": "path", "default": "unknown"},
+    {"name": "status", "default": "unknown"},
+    {"name": "healthy", "type": "bool", "default": False},
+    {"name": "is_decrypted", "type": "bool", "default": False},
+    {"name": "size", "default": 0},
+    {"name": "allocated", "default": 0},
+    {"name": "free", "default": 0},
+    {"name": "fragmentation", "default": 0},
+    {
+        "name": "autotrim",
+        "source": "autotrim/parsed",
+        "type": "bool",
+        "default": False,
+    },
+    {
+        "name": "scan_function",
+        "source": "scan/function",
+        "default": "unknown",
+    },
+    {"name": "scrub_state", "source": "scan/state", "default": "unknown"},
+    {
+        "name": "scrub_start",
+        "source": "scan/start_time/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {
+        "name": "scrub_end",
+        "source": "scan/end_time/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {
+        "name": "scrub_secs_left",
+        "source": "scan/total_secs_left",
+        "default": 0,
+    },
+]
+_POOL_ENSURE_VALS = [
+    {"name": "available", "default": 0.0},
+    {"name": "total", "default": 0.0},
+    {"name": "usage", "default": 0.0},
+    {"name": "errors", "default": 0},
+    {"name": "read_errors", "default": 0},
+    {"name": "write_errors", "default": 0},
+    {"name": "checksum_errors", "default": 0},
+]
+
+# Job status fields shared by the cloudsync, replication and rsync task queries.
+_JOB_VALS = [
+    {"name": "state", "source": "job/state", "default": "unknown"},
+    {
+        "name": "time_started",
+        "source": "job/time_started/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {
+        "name": "time_finished",
+        "source": "job/time_finished/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {"name": "job_percent", "source": "job/progress/percent", "default": 0},
+    {
+        "name": "job_description",
+        "source": "job/progress/description",
+        "default": "unknown",
+    },
+]
 
 
 # ---------------------------
@@ -179,6 +257,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "vm": {},
             "cloudsync": {},
             "replication": {},
+            "rsynctask": {},
             "snapshottask": {},
             "app": {},
             "cronjob": {},
@@ -231,7 +310,6 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise UpdateFailed(f"Error connecting to TrueNAS: {e}") from e
 
         jobs = [
-            self.get_systeminfo,
             self.get_systemstats,
             self.get_service,
             self.get_disk,
@@ -239,6 +317,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.get_vm,
             self.get_cloudsync,
             self.get_replication,
+            self.get_rsync,
             self.get_snapshottask,
             self.get_app,
             self.get_cronjob,
@@ -258,6 +337,13 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         getattr(job, "__name__", job),
                         err,
                     )
+
+            # get_systeminfo populates ds["interface"] and _is_virtual, which
+            # get_systemstats reads to decide whether to fetch the interface
+            # graph (and to skip cputemp on VMs). Run it before the concurrent
+            # jobs so the first cycle does not skip the interface graph, which
+            # would leave RX/TX at 0 until the next poll.
+            await _run_job(self.get_systeminfo)
 
             await asyncio.gather(*(_run_job(job) for job in jobs))
 
@@ -475,6 +561,10 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "tx", "default": 0},
             ],
         )
+
+        # Derive a boolean link state for the connectivity binary sensor.
+        for interface in self.ds["interface"].values():
+            interface["link_up"] = interface.get("link_state") == LINK_STATE_UP
 
     # ---------------------------
     #   get_updatecheck
@@ -859,62 +949,14 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data=self.ds["pool"],
             source=raw_pools,
             key="guid",
-            vals=[
-                {"name": "guid", "default": 0},
-                {"name": "id", "default": 0},
-                {"name": "name", "default": "unknown"},
-                {"name": "path", "default": "unknown"},
-                {"name": "status", "default": "unknown"},
-                {"name": "healthy", "type": "bool", "default": False},
-                {"name": "is_decrypted", "type": "bool", "default": False},
-                {"name": "size", "default": 0},
-                {"name": "allocated", "default": 0},
-                {"name": "free", "default": 0},
-                {"name": "fragmentation", "default": 0},
-                {
-                    "name": "autotrim",
-                    "source": "autotrim/parsed",
-                    "type": "bool",
-                    "default": False,
-                },
-                {
-                    "name": "scan_function",
-                    "source": "scan/function",
-                    "default": "unknown",
-                },
-                {"name": "scrub_state", "source": "scan/state", "default": "unknown"},
-                {
-                    "name": "scrub_start",
-                    "source": "scan/start_time/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "scrub_end",
-                    "source": "scan/end_time/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "scrub_secs_left",
-                    "source": "scan/total_secs_left",
-                    "default": 0,
-                },
-            ],
-            ensure_vals=[
-                {"name": "available", "default": 0.0},
-                {"name": "total", "default": 0.0},
-                {"name": "usage", "default": 0.0},
-                {"name": "errors", "default": 0},
-                {"name": "read_errors", "default": 0},
-                {"name": "write_errors", "default": 0},
-                {"name": "checksum_errors", "default": 0},
-            ],
+            vals=_POOL_VALS,
+            ensure_vals=_POOL_ENSURE_VALS,
         )
         if not self.api.connected():
             return
 
         self._apply_pool_errors(raw_pools)
+        self._add_boot_pool()
 
         # Build a lookup of datasets by their mountpoint so a pool's free/total
         # space can be derived from its root dataset. Matching the pool "path"
@@ -959,6 +1001,34 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # pool.query reports fragmentation as a percentage string (e.g. "48").
             self.ds["pool"][uid]["fragmentation"] = _to_int(vals.get("fragmentation"))
+
+    # ---------------------------
+    #   _add_boot_pool
+    # ---------------------------
+    def _add_boot_pool(self) -> None:
+        """Add the boot-pool to the pool data.
+
+        ``pool.query`` does not include the boot-pool; ``boot.get_state``
+        reports it with the same top-level shape (name/status/healthy/scan/
+        size/allocated/free/fragmentation), so it is parsed with the same field
+        mapping. It has no root dataset, so the capacity falls back to the
+        pool's own free/size (handled in ``_apply_pool_capacity``).
+        """
+        raw_boot = self.api.query("boot.get_state")
+        if not isinstance(raw_boot, dict) or not raw_boot:
+            return
+
+        # boot.get_state carries no guid/id; use the pool name as a stable key.
+        raw_boot.setdefault("guid", raw_boot.get("name", "boot-pool"))
+        raw_boot.setdefault("id", raw_boot.get("name", "boot-pool"))
+        self.ds["pool"] = parse_api(
+            data=self.ds["pool"],
+            source=raw_boot,
+            key="guid",
+            vals=_POOL_VALS,
+            ensure_vals=_POOL_ENSURE_VALS,
+        )
+        self._apply_pool_errors([raw_boot])
 
     # ---------------------------
     #   _apply_pool_capacity
@@ -1495,25 +1565,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "enabled", "type": "bool", "default": False},
                 {"name": "transfer_mode", "default": "unknown"},
                 {"name": "snapshot", "type": "bool", "default": False},
-                {"name": "state", "source": "job/state", "default": "unknown"},
-                {
-                    "name": "time_started",
-                    "source": "job/time_started/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "time_finished",
-                    "source": "job/time_finished/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {"name": "job_percent", "source": "job/progress/percent", "default": 0},
-                {
-                    "name": "job_description",
-                    "source": "job/progress/description",
-                    "default": "unknown",
-                },
+                *_JOB_VALS,
             ],
         )
 
@@ -1537,25 +1589,29 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "transport", "default": "unknown"},
                 {"name": "auto", "type": "bool", "default": False},
                 {"name": "retention_policy", "default": "unknown"},
-                {"name": "state", "source": "job/state", "default": "unknown"},
-                {
-                    "name": "time_started",
-                    "source": "job/time_started/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "time_finished",
-                    "source": "job/time_finished/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {"name": "job_percent", "source": "job/progress/percent", "default": 0},
-                {
-                    "name": "job_description",
-                    "source": "job/progress/description",
-                    "default": "unknown",
-                },
+                *_JOB_VALS,
+            ],
+        )
+
+    # ---------------------------
+    #   get_rsync
+    # ---------------------------
+    def get_rsync(self) -> None:
+        """Get rsync tasks from TrueNAS."""
+        self.ds["rsynctask"] = parse_api(
+            data=self.ds["rsynctask"],
+            source=self.api.query("rsynctask.query"),
+            key="id",
+            vals=[
+                {"name": "id", "default": 0},
+                {"name": "path", "default": "unknown"},
+                {"name": "desc", "default": "unknown"},
+                {"name": "remotehost", "default": "unknown"},
+                {"name": "remotemodule", "default": "unknown"},
+                {"name": "direction", "default": "unknown"},
+                {"name": "mode", "default": "unknown"},
+                {"name": "enabled", "type": "bool", "default": False},
+                *_JOB_VALS,
             ],
         )
 

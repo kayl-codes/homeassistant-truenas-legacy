@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
+from .binary_sensor_types import SENSOR_TYPES as BINARY_SENSOR_TYPES
 from .const import (
     CONF_DATA_UNIT,
     DEFAULT_DATA_UNIT,
@@ -19,11 +20,22 @@ from .const import (
     SIGNAL_UPDATE_SENSORS,
 )
 from .coordinator import TrueNASCoordinator
-from .entity import format_unique_id
+from .entity import _is_uid_excluded, format_unique_id
 from .helper import scaled_data_unit
 from .sensor_types import SENSOR_TYPES
+from .switch_types import SENSOR_TYPES as SWITCH_SENSOR_TYPES
+from .update_types import SENSOR_TYPES as UPDATE_SENSOR_TYPES
 
 _LOGGER = getLogger(__name__)
+
+# All entity descriptions across platforms, used to compute the set of unique_ids
+# that legitimately exist for the current TrueNAS objects (orphan cleanup).
+_ALL_DESCRIPTIONS = (
+    *SENSOR_TYPES,
+    *BINARY_SENSOR_TYPES,
+    *SWITCH_SENSOR_TYPES,
+    *UPDATE_SENSOR_TYPES,
+)
 
 
 # ---------------------------
@@ -95,6 +107,95 @@ def _force_entity_unit(ent_reg, inst, description, reference, value, binary) -> 
 
 
 # ---------------------------
+#   _collect_active_unique_ids / _cleanup_orphaned_entities
+# ---------------------------
+def _referenced_unique_ids(inst: str, description, data: dict) -> set[str]:
+    """Unique_ids the integration would create for one referenced description.
+
+    Mirrors entity creation, honoring the ``data_exclude`` filter (e.g. traffic
+    sensors of a down interface are skipped).
+    """
+    ids: set[str] = set()
+    for uid, vals in data.items():
+        if _is_uid_excluded(description, vals):
+            continue
+        ref = vals.get(description.data_reference)
+        reference = ref if ref is not None else uid
+        ids.add(format_unique_id(inst, description.key, reference))
+
+    return ids
+
+
+def _collect_active_unique_ids(
+    inst: str, coordinator: TrueNASCoordinator
+) -> tuple[set[str], set[str]]:
+    """Return (active unique_ids, live bases) for the current TrueNAS objects.
+
+    ``active`` is every unique_id the integration would create right now (see
+    ``_referenced_unique_ids``), so entities filtered out by ``data_exclude``
+    get cleaned up. ``live bases`` are the per-description id prefixes whose data
+    domain currently holds data, so cleanup never wipes a whole group on a
+    transient empty fetch.
+    """
+    active: set[str] = set()
+    live_bases: set[str] = set()
+
+    for description in _ALL_DESCRIPTIONS:
+        base = format_unique_id(inst, description.key)
+        if not getattr(description, "data_reference", None):
+            # Keyless single entity: always protect it from removal.
+            active.add(base)
+            continue
+
+        data = coordinator.data.get(description.data_path)
+        if not data:
+            continue
+
+        live_bases.add(base)
+        active |= _referenced_unique_ids(inst, description, data)
+
+    return active, live_bases
+
+
+def _cleanup_orphaned_entities(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    coordinator: TrueNASCoordinator,
+) -> None:
+    """Remove registry entities the integration would no longer create.
+
+    An entity is deleted when it is not in the active set yet belongs to a data
+    domain that currently holds data. This covers both true orphans (the object
+    is gone) and entities filtered out by ``data_exclude`` (e.g. traffic sensors
+    of a down interface). A transient empty fetch of a whole domain never wipes
+    the corresponding group, and cleanup is skipped unless the last update
+    succeeded.
+    """
+    if not coordinator.last_update_success:
+        return
+
+    inst = config_entry.data[CONF_NAME]
+    active, live_bases = _collect_active_unique_ids(inst, coordinator)
+
+    ent_reg = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(
+        ent_reg, config_entry.entry_id
+    ):
+        unique_id = entity_entry.unique_id
+        if unique_id in active:
+            continue
+        if any(
+            unique_id == base or unique_id.startswith(f"{base}-") for base in live_bases
+        ):
+            _LOGGER.info(
+                "Removing orphaned TrueNAS entity %s (unique_id=%s)",
+                entity_entry.entity_id,
+                unique_id,
+            )
+            ent_reg.async_remove(entity_entry.entity_id)
+
+
+# ---------------------------
 #   async_setup_entry
 # ---------------------------
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
@@ -104,6 +205,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = coordinator
 
     _migrate_data_size_units(hass, config_entry, coordinator)
+    _cleanup_orphaned_entities(hass, config_entry, coordinator)
 
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 

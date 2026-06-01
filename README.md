@@ -18,11 +18,13 @@
 > **Note:** This is an actively maintained and updated fork of the original TrueNAS integration.
 
 Monitor and control your TrueNAS device from Home Assistant.
- * Monitor System (CPU, Load, Memory, Temperature, Network, ARC/L2ARC, Uptime)
+ * Monitor System (CPU, Load, Memory, Temperature, ARC/L2ARC, Uptime)
+ * Monitor Network interfaces in a dedicated device group (RX/TX traffic + link connectivity per NIC)
  * Monitor Disks
- * Monitor Pools (including boot-pool)
+ * Monitor Pools (including the boot-pool)
  * Monitor Datasets
- * Monitor Replication Tasks
+ * Monitor and run Replication Tasks
+ * Monitor and run Rsync Tasks
  * Monitor Snapshot Tasks
  * Control and Monitor Services
  * Control and Monitor Virtual Machines
@@ -51,6 +53,13 @@ Monitor temperature and attributes for each TrueNAS disk.
 
 ![Disks](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/disk.png)
 
+## Network
+Each network interface is grouped under its own dedicated device. The integration
+exposes RX/TX traffic sensors and a link connectivity binary sensor per interface.
+Traffic sensors are created for active interfaces; the link sensor is always
+available so disconnected interfaces can be monitored too. Sensors for interfaces
+that no longer exist are cleaned up automatically on startup.
+
 ## Virtual Machines
 Control and monitor status and attributes for each TrueNAS virtual machine.
 Control of virtual machines is available through actions.
@@ -73,8 +82,13 @@ Cloudsync control is available through actions.
 
 ## Replication Tasks
 Monitor status and attributes for each TrueNAS replication task.
+Replication tasks can be started on demand through the `replication_run` action.
 
 ![Replication Tasks](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/replication.png)
+
+## Rsync Tasks
+Monitor status and attributes for each TrueNAS rsync task.
+Rsync tasks can be started on demand through the `rsync_run` action.
 
 ## Snapshot Tasks
 Monitor status and attributes for each TrueNAS snapshot task.
