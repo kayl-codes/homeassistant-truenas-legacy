@@ -87,6 +87,29 @@ _POOL_ENSURE_VALS = [
     {"name": "checksum_errors", "default": 0},
 ]
 
+# Job status fields shared by the cloudsync, replication and rsync task queries.
+_JOB_VALS = [
+    {"name": "state", "source": "job/state", "default": "unknown"},
+    {
+        "name": "time_started",
+        "source": "job/time_started/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {
+        "name": "time_finished",
+        "source": "job/time_finished/$date",
+        "default": 0,
+        "convert": "utc_from_timestamp",
+    },
+    {"name": "job_percent", "source": "job/progress/percent", "default": 0},
+    {
+        "name": "job_description",
+        "source": "job/progress/description",
+        "default": "unknown",
+    },
+]
+
 
 # ---------------------------
 #   _stat_name_similar
@@ -1542,25 +1565,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "enabled", "type": "bool", "default": False},
                 {"name": "transfer_mode", "default": "unknown"},
                 {"name": "snapshot", "type": "bool", "default": False},
-                {"name": "state", "source": "job/state", "default": "unknown"},
-                {
-                    "name": "time_started",
-                    "source": "job/time_started/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "time_finished",
-                    "source": "job/time_finished/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {"name": "job_percent", "source": "job/progress/percent", "default": 0},
-                {
-                    "name": "job_description",
-                    "source": "job/progress/description",
-                    "default": "unknown",
-                },
+                *_JOB_VALS,
             ],
         )
 
@@ -1584,25 +1589,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "transport", "default": "unknown"},
                 {"name": "auto", "type": "bool", "default": False},
                 {"name": "retention_policy", "default": "unknown"},
-                {"name": "state", "source": "job/state", "default": "unknown"},
-                {
-                    "name": "time_started",
-                    "source": "job/time_started/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "time_finished",
-                    "source": "job/time_finished/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {"name": "job_percent", "source": "job/progress/percent", "default": 0},
-                {
-                    "name": "job_description",
-                    "source": "job/progress/description",
-                    "default": "unknown",
-                },
+                *_JOB_VALS,
             ],
         )
 
@@ -1624,25 +1611,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "direction", "default": "unknown"},
                 {"name": "mode", "default": "unknown"},
                 {"name": "enabled", "type": "bool", "default": False},
-                {"name": "state", "source": "job/state", "default": "unknown"},
-                {
-                    "name": "time_started",
-                    "source": "job/time_started/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {
-                    "name": "time_finished",
-                    "source": "job/time_finished/$date",
-                    "default": 0,
-                    "convert": "utc_from_timestamp",
-                },
-                {"name": "job_percent", "source": "job/progress/percent", "default": 0},
-                {
-                    "name": "job_description",
-                    "source": "job/progress/description",
-                    "default": "unknown",
-                },
+                *_JOB_VALS,
             ],
         )
 
