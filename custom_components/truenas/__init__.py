@@ -109,17 +109,33 @@ def _force_entity_unit(ent_reg, inst, description, reference, value, binary) -> 
 # ---------------------------
 #   _collect_active_unique_ids / _cleanup_orphaned_entities
 # ---------------------------
+def _referenced_unique_ids(inst: str, description, data: dict) -> set[str]:
+    """Unique_ids the integration would create for one referenced description.
+
+    Mirrors entity creation, honoring the ``data_exclude`` filter (e.g. traffic
+    sensors of a down interface are skipped).
+    """
+    ids: set[str] = set()
+    for uid, vals in data.items():
+        if _is_uid_excluded(description, vals):
+            continue
+        ref = vals.get(description.data_reference) if isinstance(vals, dict) else None
+        reference = ref if ref is not None else uid
+        ids.add(format_unique_id(inst, description.key, reference))
+
+    return ids
+
+
 def _collect_active_unique_ids(
     inst: str, coordinator: TrueNASCoordinator
 ) -> tuple[set[str], set[str]]:
     """Return (active unique_ids, live bases) for the current TrueNAS objects.
 
-    ``active`` is every unique_id the integration would create right now. It
-    mirrors entity creation, including the ``data_exclude`` filter, so e.g. the
-    traffic sensors of a down interface are *not* active and get cleaned up
-    (their link binary sensor, which has no exclude, stays). ``live bases`` are
-    the per-description id prefixes whose data domain currently holds data, so
-    cleanup never wipes a whole group on a transient empty fetch.
+    ``active`` is every unique_id the integration would create right now (see
+    ``_referenced_unique_ids``), so entities filtered out by ``data_exclude``
+    get cleaned up. ``live bases`` are the per-description id prefixes whose data
+    domain currently holds data, so cleanup never wipes a whole group on a
+    transient empty fetch.
     """
     active: set[str] = set()
     live_bases: set[str] = set()
@@ -136,14 +152,7 @@ def _collect_active_unique_ids(
             continue
 
         live_bases.add(base)
-        for uid, vals in data.items():
-            if _is_uid_excluded(description, vals):
-                continue
-            ref = (
-                vals.get(description.data_reference) if isinstance(vals, dict) else None
-            )
-            reference = ref if ref is not None else uid
-            active.add(format_unique_id(inst, description.key, reference))
+        active |= _referenced_unique_ids(inst, description, data)
 
     return active, live_bases
 
