@@ -138,6 +138,18 @@ def configured_instances(hass):
 
 
 # ---------------------------
+#   _guess_ip
+# ---------------------------
+def _guess_ip() -> str:
+    """Try to guess the TrueNAS IP from common local hostnames."""
+    for domain in [""] + KNOWN_DOMAINS:
+        test_host = f"truenas.{domain}" if domain else "truenas"
+        with contextlib.suppress(OSError):
+            return socket.gethostbyname(test_host)
+    return DEFAULT_HOST
+
+
+# ---------------------------
 #   TrueNASConfigFlow
 # ---------------------------
 class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -180,16 +192,7 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is None and not truenas_config.get(CONF_HOST):
-
-            def guess_ip():
-                """Try to guess TrueNAS IP."""
-                for domain in [""] + KNOWN_DOMAINS:
-                    test_host = f"truenas.{domain}" if domain else "truenas"
-                    with contextlib.suppress(OSError):
-                        return socket.gethostbyname(test_host)
-                return DEFAULT_HOST
-
-            default_host = await self.hass.async_add_executor_job(guess_ip)
+            default_host = await self.hass.async_add_executor_job(_guess_ip)
             _LOGGER.debug("Auto-discovered default host: %s", default_host)
             truenas_config[CONF_HOST] = default_host
 
