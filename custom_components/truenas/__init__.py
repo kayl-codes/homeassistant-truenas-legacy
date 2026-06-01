@@ -119,7 +119,7 @@ def _referenced_unique_ids(inst: str, description, data: dict) -> set[str]:
     for uid, vals in data.items():
         if _is_uid_excluded(description, vals):
             continue
-        ref = vals.get(description.data_reference) if isinstance(vals, dict) else None
+        ref = vals.get(description.data_reference)
         reference = ref if ref is not None else uid
         ids.add(format_unique_id(inst, description.key, reference))
 
@@ -148,7 +148,7 @@ def _collect_active_unique_ids(
             continue
 
         data = coordinator.data.get(description.data_path)
-        if not isinstance(data, dict) or not data:
+        if not data:
             continue
 
         live_bases.add(base)
