@@ -234,6 +234,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "vm": {},
             "cloudsync": {},
             "replication": {},
+            "rsynctask": {},
             "snapshottask": {},
             "app": {},
             "cronjob": {},
@@ -293,6 +294,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.get_vm,
             self.get_cloudsync,
             self.get_replication,
+            self.get_rsync,
             self.get_snapshottask,
             self.get_app,
             self.get_cronjob,
@@ -1582,6 +1584,46 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "transport", "default": "unknown"},
                 {"name": "auto", "type": "bool", "default": False},
                 {"name": "retention_policy", "default": "unknown"},
+                {"name": "state", "source": "job/state", "default": "unknown"},
+                {
+                    "name": "time_started",
+                    "source": "job/time_started/$date",
+                    "default": 0,
+                    "convert": "utc_from_timestamp",
+                },
+                {
+                    "name": "time_finished",
+                    "source": "job/time_finished/$date",
+                    "default": 0,
+                    "convert": "utc_from_timestamp",
+                },
+                {"name": "job_percent", "source": "job/progress/percent", "default": 0},
+                {
+                    "name": "job_description",
+                    "source": "job/progress/description",
+                    "default": "unknown",
+                },
+            ],
+        )
+
+    # ---------------------------
+    #   get_rsync
+    # ---------------------------
+    def get_rsync(self) -> None:
+        """Get rsync tasks from TrueNAS."""
+        self.ds["rsynctask"] = parse_api(
+            data=self.ds["rsynctask"],
+            source=self.api.query("rsynctask.query"),
+            key="id",
+            vals=[
+                {"name": "id", "default": 0},
+                {"name": "path", "default": "unknown"},
+                {"name": "desc", "default": "unknown"},
+                {"name": "remotehost", "default": "unknown"},
+                {"name": "remotemodule", "default": "unknown"},
+                {"name": "direction", "default": "unknown"},
+                {"name": "mode", "default": "unknown"},
+                {"name": "enabled", "type": "bool", "default": False},
                 {"name": "state", "source": "job/state", "default": "unknown"},
                 {
                     "name": "time_started",

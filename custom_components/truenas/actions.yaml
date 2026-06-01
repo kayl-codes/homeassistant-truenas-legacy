@@ -12,7 +12,23 @@ cloudsync_abort:
   description: Abort a Clousync Job
   target:
     entity:
-      integration: truenas    
+      integration: truenas
+      domain: sensor
+
+rsync_run:
+  name: Rsync Run
+  description: Start an Rsync task (target the Rsync task sensor)
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+replication_run:
+  name: Replication Run
+  description: Start a Replication task (target the Replication sensor)
+  target:
+    entity:
+      integration: truenas
       domain: sensor
 
 dataset_snapshot:
