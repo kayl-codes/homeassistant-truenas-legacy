@@ -13,7 +13,10 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .binary_sensor_types import SENSOR_TYPES as BINARY_SENSOR_TYPES
 from .const import (
+    BEHAVIOR_REMOVE_INACTIVE_NIC,
+    CONF_BEHAVIORS,
     CONF_DATA_UNIT,
+    DEFAULT_BEHAVIORS,
     DEFAULT_DATA_UNIT,
     DOMAIN,
     PLATFORMS,
@@ -109,15 +112,17 @@ def _force_entity_unit(ent_reg, inst, description, reference, value, binary) -> 
 # ---------------------------
 #   _collect_active_unique_ids / _cleanup_orphaned_entities
 # ---------------------------
-def _referenced_unique_ids(inst: str, description, data: dict) -> set[str]:
+def _referenced_unique_ids(
+    inst: str, description, data: dict, honor_exclude: bool = True
+) -> set[str]:
     """Unique_ids the integration would create for one referenced description.
 
-    Mirrors entity creation, honoring the ``data_exclude`` filter (e.g. traffic
-    sensors of a down interface are skipped).
+    Mirrors entity creation; the ``data_exclude`` filter (e.g. traffic sensors
+    of a down interface) is only applied when ``honor_exclude`` is True.
     """
     ids: set[str] = set()
     for uid, vals in data.items():
-        if _is_uid_excluded(description, vals):
+        if honor_exclude and _is_uid_excluded(description, vals):
             continue
         ref = vals.get(description.data_reference)
         reference = ref if ref is not None else uid
@@ -132,11 +137,16 @@ def _collect_active_unique_ids(
     """Return (active unique_ids, live bases) for the current TrueNAS objects.
 
     ``active`` is every unique_id the integration would create right now (see
-    ``_referenced_unique_ids``), so entities filtered out by ``data_exclude``
-    get cleaned up. ``live bases`` are the per-description id prefixes whose data
+    ``_referenced_unique_ids``). The ``data_exclude`` filter (e.g. traffic
+    sensors of down interfaces) is only honoured when the
+    BEHAVIOR_REMOVE_INACTIVE_NIC option is active; otherwise excluded entities
+    are kept. ``live bases`` are the per-description id prefixes whose data
     domain currently holds data, so cleanup never wipes a whole group on a
     transient empty fetch.
     """
+    behaviors = coordinator.config_entry.options.get(CONF_BEHAVIORS, DEFAULT_BEHAVIORS)
+    honor_exclude = BEHAVIOR_REMOVE_INACTIVE_NIC in behaviors
+
     active: set[str] = set()
     live_bases: set[str] = set()
 
@@ -152,7 +162,7 @@ def _collect_active_unique_ids(
             continue
 
         live_bases.add(base)
-        active |= _referenced_unique_ids(inst, description, data)
+        active |= _referenced_unique_ids(inst, description, data, honor_exclude)
 
     return active, live_bases
 
@@ -221,7 +231,20 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     config_entry.async_on_unload(
         coordinator.async_add_listener(_handle_coordinator_refresh)
     )
+
+    # Reload the entry when the user saves new options so the coordinator
+    # picks up the changed poll interval / group toggles immediately.
+    config_entry.async_on_unload(
+        config_entry.add_update_listener(_async_options_updated)
+    )
     return True
+
+
+async def _async_options_updated(
+    hass: HomeAssistant, config_entry: ConfigEntry
+) -> None:
+    """Reload the integration when options change."""
+    await hass.config_entries.async_reload(config_entry.entry_id)
 
 
 # ---------------------------

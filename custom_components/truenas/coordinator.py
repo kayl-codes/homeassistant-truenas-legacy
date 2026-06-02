@@ -21,6 +21,12 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import TrueNASAPI
 from .apiparser import parse_api
 from .const import (
+    BEHAVIOR_SKIP_DISABLED_CRONJOBS,
+    CONF_BEHAVIORS,
+    CONF_MONITORED_GROUPS,
+    CONF_POLL_INTERVAL,
+    DEFAULT_MONITORED_GROUPS,
+    DEFAULT_POLL_INTERVAL,
     DOMAIN,
     KILOBITS_TO_KIBIBYTES_FACTOR,
     LINK_STATE_UP,
@@ -237,11 +243,12 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass = hass
         self.config_entry: ConfigEntry = config_entry
 
+        poll = int(config_entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
         super().__init__(
             self.hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=60),
+            update_interval=timedelta(seconds=poll),
         )
 
         self.name = config_entry.data[CONF_NAME]
@@ -296,6 +303,16 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def connected(self) -> bool:
         """Return connected state."""
         return self.api.connected()
+
+    # ---------------------------
+    #   _is_group_monitored
+    # ---------------------------
+    def _is_group_monitored(self, group: str) -> bool:
+        """Return True when the given sensor group is enabled in options."""
+        monitored = self.config_entry.options.get(
+            CONF_MONITORED_GROUPS, DEFAULT_MONITORED_GROUPS
+        )
+        return group in monitored
 
     # ---------------------------
     #   _async_update_data
@@ -1109,6 +1126,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_dataset(self) -> None:
         """Get datasets from TrueNAS."""
+        if not self._is_group_monitored("datasets"):
+            self.ds["dataset"] = {}
+            return
         self.ds["dataset"] = parse_api(
             data={},
             source=self.api.query("pool.dataset.query"),
@@ -1410,6 +1430,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_vm(self) -> None:
         """Get VMs from TrueNAS."""
+        if not self._is_group_monitored("vms"):
+            self.ds["vm"] = {}
+            return
         self.ds["vm"] = parse_api(
             data=self.ds["vm"],
             source=self.api.query("vm.query"),
@@ -1502,6 +1525,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_ups(self) -> None:
         """Get UPS readings from the netdata UPS graphs, if a UPS is present."""
+        if not self._is_group_monitored("ups"):
+            self.ds["ups"] = {}
+            return
         if self._ups_graphs is None:
             discovered = self._discover_ups_graphs()
             if discovered is None:
@@ -1553,6 +1579,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_cloudsync(self) -> None:
         """Get cloudsync from TrueNAS."""
+        if not self._is_group_monitored("cloudsync"):
+            self.ds["cloudsync"] = {}
+            return
         self.ds["cloudsync"] = parse_api(
             data=self.ds["cloudsync"],
             source=self.api.query("cloudsync.query"),
@@ -1574,6 +1603,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_replication(self) -> None:
         """Get replication from TrueNAS."""
+        if not self._is_group_monitored("replication"):
+            self.ds["replication"] = {}
+            return
         self.ds["replication"] = parse_api(
             data=self.ds["replication"],
             source=self.api.query("replication.query"),
@@ -1598,6 +1630,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_rsync(self) -> None:
         """Get rsync tasks from TrueNAS."""
+        if not self._is_group_monitored("rsync"):
+            self.ds["rsynctask"] = {}
+            return
         self.ds["rsynctask"] = parse_api(
             data=self.ds["rsynctask"],
             source=self.api.query("rsynctask.query"),
@@ -1619,7 +1654,10 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     #   get_snapshottask
     # ---------------------------
     def get_snapshottask(self) -> None:
-        """Get replication from TrueNAS."""
+        """Get snapshot tasks from TrueNAS."""
+        if not self._is_group_monitored("snapshots"):
+            self.ds["snapshottask"] = {}
+            return
         self.ds["snapshottask"] = parse_api(
             data=self.ds["snapshottask"],
             source=self.api.query("pool.snapshottask.query"),
@@ -1741,10 +1779,14 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ],
         )
 
-        skip_disabled = self.config_entry.options.get(
-            "cronjob_skip_disabled",
-            self.config_entry.data.get("cronjob_skip_disabled", True),
-        )
+        behaviors = self.config_entry.options.get(CONF_BEHAVIORS)
+        if behaviors is not None:
+            skip_disabled = BEHAVIOR_SKIP_DISABLED_CRONJOBS in behaviors
+        else:
+            skip_disabled = self.config_entry.options.get(
+                "cronjob_skip_disabled",
+                self.config_entry.data.get("cronjob_skip_disabled", True),
+            )
 
         # Rebuild the dict instead of mutating it while iterating, so disabled
         # cronjobs are dropped without needing a list() copy of the items.
