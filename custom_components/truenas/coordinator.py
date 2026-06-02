@@ -1685,10 +1685,16 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for uid, vals in self.ds["app"].items():
             vals["running"] = vals["state"] == "RUNNING"
-            # Custom/compose apps have no catalog upgrade; their updates are
-            # surfaced via image_updates_available. Treat either as an update.
-            vals["update_available"] = bool(vals.get("update_available")) or bool(
-                vals.get("image_updates_available")
+            # Catalog apps report updates via upgrade_available (the chart
+            # upgrade, matching TrueNAS' "Update available"). Custom/compose
+            # apps have no catalog upgrade, so for them an available container
+            # image update is the only update signal. Only fall back to
+            # image_updates_available for custom apps; otherwise a catalog app
+            # that is chart-up-to-date but has a newer image digest would show
+            # a phantom update (#31).
+            vals["update_available"] = bool(vals.get("update_available")) or (
+                bool(vals.get("custom_app"))
+                and bool(vals.get("image_updates_available"))
             )
 
         self._clear_finished_app_updates()
