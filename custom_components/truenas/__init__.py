@@ -16,9 +16,12 @@ from .const import (
     BEHAVIOR_REMOVE_INACTIVE_NIC,
     CONF_BEHAVIORS,
     CONF_DATA_UNIT,
+    CONF_MONITORED_GROUPS,
     DEFAULT_BEHAVIORS,
     DEFAULT_DATA_UNIT,
+    DEFAULT_MONITORED_GROUPS,
     DOMAIN,
+    GROUP_DATA_PATHS,
     PLATFORMS,
     SIGNAL_UPDATE_SENSORS,
 )
@@ -147,6 +150,14 @@ def _collect_active_unique_ids(
     behaviors = coordinator.config_entry.options.get(CONF_BEHAVIORS, DEFAULT_BEHAVIORS)
     honor_exclude = BEHAVIOR_REMOVE_INACTIVE_NIC in behaviors
 
+    monitored = coordinator.config_entry.options.get(
+        CONF_MONITORED_GROUPS, DEFAULT_MONITORED_GROUPS
+    )
+    disabled_data_paths: set[str] = set()
+    for group, paths in GROUP_DATA_PATHS.items():
+        if group not in monitored:
+            disabled_data_paths.update(paths)
+
     active: set[str] = set()
     live_bases: set[str] = set()
 
@@ -158,11 +169,19 @@ def _collect_active_unique_ids(
             continue
 
         data = coordinator.data.get(description.data_path)
-        if not data:
+        is_disabled_group = description.data_path in disabled_data_paths
+
+        if not data and not is_disabled_group:
+            # Transient empty fetch for an enabled group → protect entities.
             continue
 
+        # Always mark this base as live so the cleanup loop considers it.
         live_bases.add(base)
-        active |= _referenced_unique_ids(inst, description, data, honor_exclude)
+        if data and not is_disabled_group:
+            # Normal enabled group: build the active set (respecting NIC exclusion).
+            active |= _referenced_unique_ids(inst, description, data, honor_exclude)
+        # Disabled group: base is in live_bases but nothing added to active
+        # → every entity under this base will be removed by the cleanup loop.
 
     return active, live_bases
 

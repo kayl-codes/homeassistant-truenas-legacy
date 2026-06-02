@@ -131,6 +131,18 @@ DEFAULT_MONITORED_GROUPS = [
     MONITOR_GROUP_DATASETS,
 ]
 
+# Maps each monitored-group option key to the coordinator ds data_path(s) it owns.
+# Used by the orphan-cleanup to force-remove entities when a group is disabled.
+GROUP_DATA_PATHS: dict[str, set[str]] = {
+    MONITOR_GROUP_UPS: {"ups"},
+    MONITOR_GROUP_VMS: {"vm"},
+    MONITOR_GROUP_CLOUDSYNC: {"cloudsync"},
+    MONITOR_GROUP_REPLICATION: {"replication"},
+    MONITOR_GROUP_RSYNC: {"rsynctask"},
+    MONITOR_GROUP_SNAPSHOTS: {"snapshottask"},
+    MONITOR_GROUP_DATASETS: {"dataset"},
+}
+
 SERVICE_SERVICE_START = "service_start"
 SCHEMA_SERVICE_SERVICE_START = {}
 SERVICE_SERVICE_STOP = "service_stop"
