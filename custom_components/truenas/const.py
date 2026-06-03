@@ -103,6 +103,46 @@ SCHEMA_SERVICE_SYSTEM_SHUTDOWN = {}
 CONF_CRONJOB_SKIP_DISABLED = "cronjob_skip_disabled"
 CONF_DATA_UNIT = "data_unit"
 
+# Options-Flow
+CONF_POLL_INTERVAL = "poll_interval"
+DEFAULT_POLL_INTERVAL = 60
+ALLOWED_POLL_INTERVALS = ["5", "10", "30", "60", "120", "300"]
+
+CONF_BEHAVIORS = "behaviors"
+BEHAVIOR_SKIP_DISABLED_CRONJOBS = "skip_disabled_cronjobs"
+BEHAVIOR_REMOVE_INACTIVE_NIC = "remove_inactive_nic"
+DEFAULT_BEHAVIORS = [BEHAVIOR_SKIP_DISABLED_CRONJOBS]
+
+CONF_MONITORED_GROUPS = "monitored_groups"
+MONITOR_GROUP_UPS = "ups"
+MONITOR_GROUP_VMS = "vms"
+MONITOR_GROUP_CLOUDSYNC = "cloudsync"
+MONITOR_GROUP_REPLICATION = "replication"
+MONITOR_GROUP_RSYNC = "rsync"
+MONITOR_GROUP_SNAPSHOTS = "snapshots"
+MONITOR_GROUP_DATASETS = "datasets"
+DEFAULT_MONITORED_GROUPS = [
+    MONITOR_GROUP_UPS,
+    MONITOR_GROUP_VMS,
+    MONITOR_GROUP_CLOUDSYNC,
+    MONITOR_GROUP_REPLICATION,
+    MONITOR_GROUP_RSYNC,
+    MONITOR_GROUP_SNAPSHOTS,
+    MONITOR_GROUP_DATASETS,
+]
+
+# Maps each monitored-group option key to the coordinator ds data_path(s) it owns.
+# Used by the orphan-cleanup to force-remove entities when a group is disabled.
+GROUP_DATA_PATHS: dict[str, set[str]] = {
+    MONITOR_GROUP_UPS: {"ups"},
+    MONITOR_GROUP_VMS: {"vm"},
+    MONITOR_GROUP_CLOUDSYNC: {"cloudsync"},
+    MONITOR_GROUP_REPLICATION: {"replication"},
+    MONITOR_GROUP_RSYNC: {"rsynctask"},
+    MONITOR_GROUP_SNAPSHOTS: {"snapshottask"},
+    MONITOR_GROUP_DATASETS: {"dataset"},
+}
+
 SERVICE_SERVICE_START = "service_start"
 SCHEMA_SERVICE_SERVICE_START = {}
 SERVICE_SERVICE_STOP = "service_stop"

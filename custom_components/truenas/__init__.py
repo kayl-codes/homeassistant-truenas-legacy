@@ -8,14 +8,21 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .binary_sensor_types import SENSOR_TYPES as BINARY_SENSOR_TYPES
 from .const import (
+    BEHAVIOR_REMOVE_INACTIVE_NIC,
+    CONF_BEHAVIORS,
     CONF_DATA_UNIT,
+    CONF_MONITORED_GROUPS,
+    DEFAULT_BEHAVIORS,
     DEFAULT_DATA_UNIT,
+    DEFAULT_MONITORED_GROUPS,
     DOMAIN,
+    GROUP_DATA_PATHS,
     PLATFORMS,
     SIGNAL_UPDATE_SENSORS,
 )
@@ -109,15 +116,27 @@ def _force_entity_unit(ent_reg, inst, description, reference, value, binary) -> 
 # ---------------------------
 #   _collect_active_unique_ids / _cleanup_orphaned_entities
 # ---------------------------
-def _referenced_unique_ids(inst: str, description, data: dict) -> set[str]:
+def _handle_keyless(
+    base: str, is_disabled: bool, active: set[str], live_bases: set[str]
+) -> None:
+    """Route a keyless entity base to the correct set for the cleanup decision."""
+    if is_disabled:
+        live_bases.add(base)
+    else:
+        active.add(base)
+
+
+def _referenced_unique_ids(
+    inst: str, description, data: dict, honor_exclude: bool = True
+) -> set[str]:
     """Unique_ids the integration would create for one referenced description.
 
-    Mirrors entity creation, honoring the ``data_exclude`` filter (e.g. traffic
-    sensors of a down interface are skipped).
+    Mirrors entity creation; the ``data_exclude`` filter (e.g. traffic sensors
+    of a down interface) is only applied when ``honor_exclude`` is True.
     """
     ids: set[str] = set()
     for uid, vals in data.items():
-        if _is_uid_excluded(description, vals):
+        if honor_exclude and _is_uid_excluded(description, vals):
             continue
         ref = vals.get(description.data_reference)
         reference = ref if ref is not None else uid
@@ -132,27 +151,47 @@ def _collect_active_unique_ids(
     """Return (active unique_ids, live bases) for the current TrueNAS objects.
 
     ``active`` is every unique_id the integration would create right now (see
-    ``_referenced_unique_ids``), so entities filtered out by ``data_exclude``
-    get cleaned up. ``live bases`` are the per-description id prefixes whose data
+    ``_referenced_unique_ids``). The ``data_exclude`` filter (e.g. traffic
+    sensors of down interfaces) is only honoured when the
+    BEHAVIOR_REMOVE_INACTIVE_NIC option is active; otherwise excluded entities
+    are kept. ``live bases`` are the per-description id prefixes whose data
     domain currently holds data, so cleanup never wipes a whole group on a
     transient empty fetch.
     """
+    behaviors = coordinator.config_entry.options.get(CONF_BEHAVIORS, DEFAULT_BEHAVIORS)
+    honor_exclude = BEHAVIOR_REMOVE_INACTIVE_NIC in behaviors
+
+    monitored = coordinator.config_entry.options.get(
+        CONF_MONITORED_GROUPS, DEFAULT_MONITORED_GROUPS
+    )
+    disabled_data_paths: set[str] = set()
+    for group, paths in GROUP_DATA_PATHS.items():
+        if group not in monitored:
+            disabled_data_paths.update(paths)
+
     active: set[str] = set()
     live_bases: set[str] = set()
 
     for description in _ALL_DESCRIPTIONS:
         base = format_unique_id(inst, description.key)
+        is_disabled_group = description.data_path in disabled_data_paths
+
         if not getattr(description, "data_reference", None):
-            # Keyless single entity: always protect it from removal.
-            active.add(base)
+            _handle_keyless(base, is_disabled_group, active, live_bases)
             continue
 
         data = coordinator.data.get(description.data_path)
-        if not data:
+
+        if not data and not is_disabled_group:
+            # Transient empty fetch for an enabled group → protect entities.
             continue
 
+        # Mark base as live so the cleanup loop considers it.
         live_bases.add(base)
-        active |= _referenced_unique_ids(inst, description, data)
+        if data and not is_disabled_group:
+            # Normal enabled group: build the active set (respecting NIC exclusion).
+            active |= _referenced_unique_ids(inst, description, data, honor_exclude)
+        # Disabled group: base in live_bases, nothing in active → entities removed.
 
     return active, live_bases
 
@@ -194,6 +233,20 @@ def _cleanup_orphaned_entities(
             )
             ent_reg.async_remove(entity_entry.entity_id)
 
+    # Remove devices that are now empty (all their entities were cleaned up above).
+    dev_reg = dr.async_get(hass)
+    for device_entry in dr.async_entries_for_config_entry(
+        dev_reg, config_entry.entry_id
+    ):
+        if not er.async_entries_for_device(
+            ent_reg, device_entry.id, include_disabled_entities=True
+        ):
+            _LOGGER.info(
+                "Removing empty TrueNAS device %s",
+                device_entry.name_by_user or device_entry.name,
+            )
+            dev_reg.async_remove_device(device_entry.id)
+
 
 # ---------------------------
 #   async_setup_entry
@@ -221,7 +274,20 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     config_entry.async_on_unload(
         coordinator.async_add_listener(_handle_coordinator_refresh)
     )
+
+    # Reload the entry when the user saves new options so the coordinator
+    # picks up the changed poll interval / group toggles immediately.
+    config_entry.async_on_unload(
+        config_entry.add_update_listener(_async_options_updated)
+    )
     return True
+
+
+async def _async_options_updated(
+    hass: HomeAssistant, config_entry: ConfigEntry
+) -> None:
+    """Reload the integration when options change."""
+    await hass.config_entries.async_reload(config_entry.entry_id)
 
 
 # ---------------------------

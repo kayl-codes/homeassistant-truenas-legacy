@@ -11,8 +11,10 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import (
     CONN_CLASS_LOCAL_POLL,
+    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    OptionsFlow,
 )
 from homeassistant.const import (
     CONF_API_KEY,
@@ -21,16 +23,25 @@ from homeassistant.const import (
     CONF_VERIFY_SSL,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 
 from .api import TrueNASAPI
 from .const import (
     ALLOWED_DATA_UNITS,
+    BEHAVIOR_REMOVE_INACTIVE_NIC,
+    BEHAVIOR_SKIP_DISABLED_CRONJOBS,
+    CONF_BEHAVIORS,
     CONF_CRONJOB_SKIP_DISABLED,
     CONF_DATA_UNIT,
+    CONF_MONITORED_GROUPS,
+    CONF_POLL_INTERVAL,
+    DEFAULT_BEHAVIORS,
     DEFAULT_CRONJOB_SKIP_DISABLED,
     DEFAULT_DATA_UNIT,
     DEFAULT_DEVICE_NAME,
     DEFAULT_HOST,
+    DEFAULT_MONITORED_GROUPS,
+    DEFAULT_POLL_INTERVAL,
     DEFAULT_SSL_VERIFY,
     DOMAIN,
     ERR_API_NOT_FOUND,
@@ -45,6 +56,13 @@ from .const import (
     ERR_UNKNOWN_HOSTNAME,
     ERR_WS_NOT_SUPPORTED,
     KNOWN_DOMAINS,
+    MONITOR_GROUP_CLOUDSYNC,
+    MONITOR_GROUP_DATASETS,
+    MONITOR_GROUP_REPLICATION,
+    MONITOR_GROUP_RSYNC,
+    MONITOR_GROUP_SNAPSHOTS,
+    MONITOR_GROUP_UPS,
+    MONITOR_GROUP_VMS,
 )
 
 _LOGGER = getLogger(__name__)
@@ -59,7 +77,11 @@ def _base_schema(truenas_config: Mapping[str, Any]) -> vol.Schema:
         vol.Required(
             CONF_HOST, default=truenas_config.get(CONF_HOST, DEFAULT_HOST)
         ): str,
-        vol.Required(CONF_API_KEY, default=truenas_config.get(CONF_API_KEY, "")): str,
+        vol.Required(
+            CONF_API_KEY, default=truenas_config.get(CONF_API_KEY, "")
+        ): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        ),
         vol.Required(
             CONF_VERIFY_SSL,
             default=truenas_config.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
@@ -80,29 +102,90 @@ def _base_schema(truenas_config: Mapping[str, Any]) -> vol.Schema:
 
 
 def _reconfigure_schema(truenas_config: Mapping[str, Any]) -> vol.Schema:
-    """Generate base schema."""
-    base_schema = {
-        vol.Required(
-            CONF_HOST, default=truenas_config.get(CONF_HOST, DEFAULT_HOST)
-        ): str,
-        vol.Optional(CONF_API_KEY): str,
-        vol.Required(
-            CONF_VERIFY_SSL,
-            default=truenas_config.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
-        ): bool,
-        vol.Required(
-            CONF_CRONJOB_SKIP_DISABLED,
-            default=truenas_config.get(
-                CONF_CRONJOB_SKIP_DISABLED, DEFAULT_CRONJOB_SKIP_DISABLED
+    """Generate reconfigure schema (connection parameters only)."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_HOST, default=truenas_config.get(CONF_HOST, DEFAULT_HOST)
+            ): str,
+            vol.Optional(CONF_API_KEY): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
-        ): bool,
-        vol.Required(
-            CONF_DATA_UNIT,
-            default=truenas_config.get(CONF_DATA_UNIT, DEFAULT_DATA_UNIT),
-        ): vol.In(ALLOWED_DATA_UNITS),
-    }
+            vol.Required(
+                CONF_VERIFY_SSL,
+                default=truenas_config.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
+            ): bool,
+        }
+    )
 
-    return vol.Schema(base_schema)
+
+def _options_schema(options: Mapping[str, Any]) -> vol.Schema:
+    """Generate the options-flow schema."""
+    behaviors = options.get(CONF_BEHAVIORS, DEFAULT_BEHAVIORS)
+    monitored = options.get(CONF_MONITORED_GROUPS, DEFAULT_MONITORED_GROUPS)
+    poll = str(options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL))
+    data_unit = options.get(CONF_DATA_UNIT, DEFAULT_DATA_UNIT)
+
+    behavior_options = [
+        selector.SelectOptionDict(
+            value=BEHAVIOR_SKIP_DISABLED_CRONJOBS,
+            label="Skip disabled cronjobs",
+        ),
+        selector.SelectOptionDict(
+            value=BEHAVIOR_REMOVE_INACTIVE_NIC,
+            label="Hide RX/TX sensors for disconnected NICs",
+        ),
+    ]
+    group_options = [
+        selector.SelectOptionDict(value=MONITOR_GROUP_UPS, label="UPS"),
+        selector.SelectOptionDict(value=MONITOR_GROUP_VMS, label="Virtual Machines"),
+        selector.SelectOptionDict(value=MONITOR_GROUP_CLOUDSYNC, label="Cloudsync"),
+        selector.SelectOptionDict(value=MONITOR_GROUP_REPLICATION, label="Replication"),
+        selector.SelectOptionDict(value=MONITOR_GROUP_RSYNC, label="Rsync Tasks"),
+        selector.SelectOptionDict(
+            value=MONITOR_GROUP_SNAPSHOTS, label="Snapshot Tasks"
+        ),
+        selector.SelectOptionDict(value=MONITOR_GROUP_DATASETS, label="Datasets"),
+    ]
+
+    return vol.Schema(
+        {
+            vol.Required(CONF_POLL_INTERVAL, default=poll): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="5", label="5 s"),
+                        selector.SelectOptionDict(value="10", label="10 s"),
+                        selector.SelectOptionDict(value="30", label="30 s"),
+                        selector.SelectOptionDict(value="60", label="60 s"),
+                        selector.SelectOptionDict(value="120", label="120 s"),
+                        selector.SelectOptionDict(value="300", label="300 s"),
+                    ]
+                )
+            ),
+            vol.Required(CONF_DATA_UNIT, default=data_unit): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        selector.SelectOptionDict(value="GB", label="GB (base 1000)"),
+                        selector.SelectOptionDict(value="GiB", label="GiB (base 1024)"),
+                    ]
+                )
+            ),
+            vol.Required(CONF_BEHAVIORS, default=behaviors): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=behavior_options,
+                    multiple=True,
+                )
+            ),
+            vol.Required(
+                CONF_MONITORED_GROUPS, default=monitored
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=group_options,
+                    multiple=True,
+                )
+            ),
+        }
+    )
 
 
 # ---------------------------
@@ -161,6 +244,12 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Initialize the config flow."""
         self.truenas_config: dict[str, Any] = {}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow handler."""
+        return TrueNASOptionsFlow()
 
     async def _validate_connection(
         self, config: dict[str, Any], errors: dict[str, str]
@@ -263,4 +352,23 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=_reconfigure_schema(truenas_config),
             errors=errors,
+        )
+
+
+# ---------------------------
+#   TrueNASOptionsFlow
+# ---------------------------
+class TrueNASOptionsFlow(OptionsFlow):
+    """Handle TrueNAS integration options."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show and process the options form."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_options_schema(self.config_entry.options),
         )

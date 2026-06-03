@@ -22,6 +22,9 @@ from homeassistant.util import slugify
 
 from .const import (
     ATTRIBUTION,
+    BEHAVIOR_REMOVE_INACTIVE_NIC,
+    CONF_BEHAVIORS,
+    DEFAULT_BEHAVIORS,
     DOMAIN,
     SIGNAL_UPDATE_SENSORS,
 )
@@ -97,11 +100,13 @@ async def _async_create_referenced_entities(
     platform, hass: HomeAssistant, coordinator, entity_description, data, dispatcher
 ) -> None:
     """Create entities for each referenced object (uid) of a description."""
+    behaviors = coordinator.config_entry.options.get(CONF_BEHAVIORS, DEFAULT_BEHAVIORS)
+    apply_exclude = BEHAVIOR_REMOVE_INACTIVE_NIC in behaviors
     for uid in data:
         # data is a mapping of uid -> values for reference descriptions;
         # fall back to treating the iterated item itself as the values.
         vals = data[uid] if isinstance(data, dict) else uid
-        if _is_uid_excluded(entity_description, vals):
+        if apply_exclude and _is_uid_excluded(entity_description, vals):
             continue
         obj = dispatcher[entity_description.func](coordinator, entity_description, uid)
         await _async_ensure_entity(platform, hass, obj)
