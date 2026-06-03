@@ -77,7 +77,11 @@ def _base_schema(truenas_config: Mapping[str, Any]) -> vol.Schema:
         vol.Required(
             CONF_HOST, default=truenas_config.get(CONF_HOST, DEFAULT_HOST)
         ): str,
-        vol.Required(CONF_API_KEY, default=truenas_config.get(CONF_API_KEY, "")): str,
+        vol.Required(
+            CONF_API_KEY, default=truenas_config.get(CONF_API_KEY, "")
+        ): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        ),
         vol.Required(
             CONF_VERIFY_SSL,
             default=truenas_config.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
@@ -104,7 +108,9 @@ def _reconfigure_schema(truenas_config: Mapping[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_HOST, default=truenas_config.get(CONF_HOST, DEFAULT_HOST)
             ): str,
-            vol.Optional(CONF_API_KEY): str,
+            vol.Optional(CONF_API_KEY): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
             vol.Required(
                 CONF_VERIFY_SSL,
                 default=truenas_config.get(CONF_VERIFY_SSL, DEFAULT_SSL_VERIFY),
@@ -127,7 +133,7 @@ def _options_schema(options: Mapping[str, Any]) -> vol.Schema:
         ),
         selector.SelectOptionDict(
             value=BEHAVIOR_REMOVE_INACTIVE_NIC,
-            label="Remove inactive NIC sensors",
+            label="Hide RX/TX sensors for disconnected NICs",
         ),
     ]
     group_options = [
@@ -147,6 +153,8 @@ def _options_schema(options: Mapping[str, Any]) -> vol.Schema:
             vol.Required(CONF_POLL_INTERVAL, default=poll): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[
+                        selector.SelectOptionDict(value="5", label="5 s"),
+                        selector.SelectOptionDict(value="10", label="10 s"),
                         selector.SelectOptionDict(value="30", label="30 s"),
                         selector.SelectOptionDict(value="60", label="60 s"),
                         selector.SelectOptionDict(value="120", label="120 s"),

@@ -1,19 +1,27 @@
 # TrueNAS Integration
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/kayl-codes/homeassistant-truenas?style=plastic)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/kayl-codes/homeassistant-truenas?style=plastic)](https://github.com/kayl-codes/homeassistant-truenas/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=plastic)](https://github.com/hacs/integration)
-![Project Stage](https://img.shields.io/badge/project%20stage-development-yellow.svg?style=plastic)
-![GitHub all releases](https://img.shields.io/github/downloads/kayl-codes/homeassistant-truenas/total?style=plastic)
+[![Project Stage](https://img.shields.io/badge/project%20stage-development-yellow.svg?style=plastic)](#)
+[![GitHub all releases](https://img.shields.io/github/downloads/kayl-codes/homeassistant-truenas/total?style=plastic)](https://github.com/kayl-codes/homeassistant-truenas/releases)
 
-![GitHub commits since latest release](https://img.shields.io/github/commits-since/kayl-codes/homeassistant-truenas/latest?style=plastic)
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/kayl-codes/homeassistant-truenas?style=plastic)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kayl-codes/homeassistant-truenas/ci.yml?style=plastic)
+[![GitHub commits since latest release](https://img.shields.io/github/commits-since/kayl-codes/homeassistant-truenas/latest?style=plastic)](https://github.com/kayl-codes/homeassistant-truenas/commits/master)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/kayl-codes/homeassistant-truenas?style=plastic)](https://github.com/kayl-codes/homeassistant-truenas/graphs/commit-activity)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/kayl-codes/homeassistant-truenas/ci.yml?style=plastic)](https://github.com/kayl-codes/homeassistant-truenas/actions)
 
 [![Help localize](https://img.shields.io/badge/lokalise-join-green?style=plastic&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyhpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNi1jMTQ1IDc5LjE2MzQ5OSwgMjAxOC8wOC8xMy0xNjo0MDoyMiAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iIHhtbG5zOnN0UmVmPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VSZWYjIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6REVCNzgzOEY4NDYxMTFFQUIyMEY4Njc0NzVDOUZFMkMiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6REVCNzgzOEU4NDYxMTFFQUIyMEY4Njc0NzVDOUZFMkMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTcgKE1hY2ludG9zaCkiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDozN0ZDRUY4Rjc0M0UxMUU3QUQ2MDg4M0Q0MkE0NjNCNSIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDozN0ZDRUY5MDc0M0UxMUU3QUQ2MDg4M0Q0MkE0NjNCNSIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/Pjs1zyIAAABVSURBVHjaYvz//z8DOYCJgUxAtkYW9+mXyXIrI7l+ZGHc0k5nGxkupdHZxve1yQR1CjbPZURXh9dGoGJZIPUI2QC4JEgjIfyuJuk/uhgj3dMqQIABAPEGTZ/+h0kEAAAAAElFTkSuQmCC)](https://app.lokalise.com/public/9252786762290237258f09.36273104/)
 
-![English](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/flags/us.png)
-![Portuguese](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/flags/pt.png)
 
-![Truenas Logo](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/header.png)
+## Support
+If you find this project useful, you can support its development by buying me a coffee:
+[![Buy Me A Coffee](https://shields.io)](https://buymeacoffee.com/kayl74)
+
+
+![English](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/flags/us.png)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/header-ce_dark.png">
+  <img alt="TrueNAS Community Edition" src="https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/header-ce.png">
+</picture>
 
 > **Note:** This is an actively maintained and updated fork of the original TrueNAS integration.
 
@@ -34,6 +42,7 @@ Monitor and control your TrueNAS device from Home Assistant.
  * Create a Dataset Snapshot
  * Update Sensor
  * Reboot and Shutdown TrueNAS system
+ * Configurable poll interval, data unit, behaviour and per-group sensor toggles (Options)
  
 
 # Features
@@ -154,6 +163,17 @@ NOTES:
 * "Host" - Use hostname or IP and if you need port seperated by colon eG: 192.168.100.100:8888
 * "API key" - TrueNAS API key for Home Assistant 
 * "Data size unit" - Choose how storage sizes are displayed. You can select between **GB** (Gigabytes, base 1000) and **GiB** (Gibibytes, base 1024). This will automatically adjust all dataset, pool, and memory sensors.
+
+## Options
+
+After setup you can fine-tune the integration via **Settings → Devices & Services → TrueNAS → Configure**. Saving the options reloads the integration so changes take effect immediately.
+
+* **Poll interval** - How often TrueNAS is queried: `5`, `10`, `30`, `60` (default), `120` or `300` seconds. Lower values give near-live network throughput; higher values reduce load on TrueNAS. Interface RX/TX is averaged over the selected interval.
+* **Data size unit** - `GB` (base 1000) or `GiB` (base 1024); applied to all dataset, pool and memory sensors.
+* **Behaviour**
+  * *Skip disabled cronjobs* - hide cronjobs that are disabled in TrueNAS (on by default).
+  * *Hide RX/TX sensors for disconnected NICs* - when enabled, traffic sensors are only created for connected interfaces; when disabled (default), every interface gets RX/TX sensors.
+* **Monitored groups** - Enable or disable whole sensor groups: **UPS**, **Virtual Machines**, **Cloudsync**, **Replication**, **Rsync Tasks**, **Snapshot Tasks** and **Datasets**. Disabling a group skips its API query entirely (saving resources) and removes its entities and device from Home Assistant on the next reload. Core groups (system, network, pools, disks, apps, services, alerts) are always monitored.
 
 # Development
 

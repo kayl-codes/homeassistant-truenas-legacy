@@ -672,9 +672,16 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not graph_names:
             return
 
+        # Use a window matching the poll interval so interface RX/TX values
+        # reflect current traffic rather than a fixed 60-second average.
+        # A minimum of 5 s keeps the window sane at the shortest poll setting.
+        poll = int(
+            self.config_entry.options.get(CONF_POLL_INTERVAL, DEFAULT_POLL_INTERVAL)
+        )
+        window = max(poll, 5)
         graph_query = {
-            "start": report_epoch - 90,
-            "end": report_epoch - 30,
+            "start": report_epoch - window - 2,
+            "end": report_epoch - 2,
             "aggregate": True,
         }
         tmp_graph = self._fetch_stat_graphs(graph_names, graph_query)
