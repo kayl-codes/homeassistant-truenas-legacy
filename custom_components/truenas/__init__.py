@@ -115,6 +115,16 @@ def _force_entity_unit(ent_reg, inst, description, reference, value, binary) -> 
 # ---------------------------
 #   _collect_active_unique_ids / _cleanup_orphaned_entities
 # ---------------------------
+def _handle_keyless(
+    base: str, is_disabled: bool, active: set[str], live_bases: set[str]
+) -> None:
+    """Route a keyless entity base to the correct set for the cleanup decision."""
+    if is_disabled:
+        live_bases.add(base)
+    else:
+        active.add(base)
+
+
 def _referenced_unique_ids(
     inst: str, description, data: dict, honor_exclude: bool = True
 ) -> set[str]:
@@ -163,25 +173,24 @@ def _collect_active_unique_ids(
 
     for description in _ALL_DESCRIPTIONS:
         base = format_unique_id(inst, description.key)
+        is_disabled_group = description.data_path in disabled_data_paths
+
         if not getattr(description, "data_reference", None):
-            # Keyless single entity: always protect it from removal.
-            active.add(base)
+            _handle_keyless(base, is_disabled_group, active, live_bases)
             continue
 
         data = coordinator.data.get(description.data_path)
-        is_disabled_group = description.data_path in disabled_data_paths
 
         if not data and not is_disabled_group:
             # Transient empty fetch for an enabled group → protect entities.
             continue
 
-        # Always mark this base as live so the cleanup loop considers it.
+        # Mark base as live so the cleanup loop considers it.
         live_bases.add(base)
         if data and not is_disabled_group:
             # Normal enabled group: build the active set (respecting NIC exclusion).
             active |= _referenced_unique_ids(inst, description, data, honor_exclude)
-        # Disabled group: base is in live_bases but nothing added to active
-        # → every entity under this base will be removed by the cleanup loop.
+        # Disabled group: base in live_bases, nothing in active → entities removed.
 
     return active, live_bases
 
