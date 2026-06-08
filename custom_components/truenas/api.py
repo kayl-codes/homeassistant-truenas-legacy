@@ -106,26 +106,12 @@ class TrueNASAPI:
         self._scheme = scheme
         self._url = f"{self._scheme}://{self._host}/websocket"
 
-        if self._scheme == "wss":
-            self._ssl_context = ssl.create_default_context()  # noqa: S4423 # NOSONAR
-            if verify_ssl:
-                self._ssl_context.check_hostname = True
-                self._ssl_context.verify_mode = ssl.CERT_REQUIRED
-            else:
-                # Insecure configuration: certificate validation and hostname
-                # checking are disabled. This must only be used in trusted
-                # environments (e.g. local networks) and never exposed to
-                # untrusted networks, as it is vulnerable to MITM attacks.
-                _LOGGER.warning(
-                    "TrueNAS WebSocket configured with verify_ssl=False for '%s'. "
-                    "This disables TLS certificate verification and hostname "
-                    "checking and should only be used in trusted environments.",
-                    self._host,
-                )
-                self._ssl_context.check_hostname = False
-                self._ssl_context.verify_mode = ssl.CERT_NONE
-        else:
-            self._ssl_context = None
+        # The SSL context is built lazily on first connect (which runs in an
+        # executor thread), not here: ssl.create_default_context() performs
+        # blocking certificate loading and __init__ runs inside the event loop
+        # during async_setup_entry, which Home Assistant flags as a blocking call.
+        self._verify_ssl = verify_ssl
+        self._ssl_context: ssl.SSLContext | None = None
 
         self._lock = RLock()
         # Lock ordering: If both locks are needed, _io_lock MUST be acquired
@@ -733,6 +719,31 @@ class TrueNASAPI:
     # ---------------------------
     #   connect
     # ---------------------------
+    def _create_ssl_context(self) -> ssl.SSLContext:
+        """Build the WebSocket SSL context.
+
+        Blocking (loads system certificates) so it must run off the event loop;
+        ``connect`` is always invoked via ``async_add_executor_job``.
+        """
+        context = ssl.create_default_context()  # noqa: S4423 # NOSONAR
+        if self._verify_ssl:
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_REQUIRED
+        else:
+            # Insecure configuration: certificate validation and hostname
+            # checking are disabled. This must only be used in trusted
+            # environments (e.g. local networks) and never exposed to untrusted
+            # networks, as it is vulnerable to MITM attacks.
+            _LOGGER.warning(
+                "TrueNAS WebSocket configured with verify_ssl=False for '%s'. "
+                "This disables TLS certificate verification and hostname "
+                "checking and should only be used in trusted environments.",
+                self._host,
+            )
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        return context
+
     def connect(self) -> bool:
         """Return connected boolean."""
         with self._lock:
@@ -751,6 +762,8 @@ class TrueNASAPI:
             "open_timeout": 10,
         }
         if self._scheme == "wss":
+            if self._ssl_context is None:
+                self._ssl_context = self._create_ssl_context()
             kwargs["ssl"] = self._ssl_context
 
         ws = self._connect_websocket_with_retries(kwargs, error_state)
