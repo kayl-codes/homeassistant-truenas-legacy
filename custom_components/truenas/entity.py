@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from asyncio import Lock
 from collections.abc import Callable, Mapping
 from logging import getLogger
 from typing import Any
@@ -10,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION, CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_platform as ep
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -71,47 +73,54 @@ def _is_uid_excluded(entity_description, vals) -> bool:
     return isinstance(vals, dict) and vals.get(key) == value
 
 
-def _collect_new_entities(
-    coordinator, descriptions, dispatcher, known: set[str]
+def _new_referenced_entities(
+    coordinator, entity_description, data, dispatcher, seen: set[str]
 ) -> list:
-    """Return entity objects whose unique_id has not been added yet.
-
-    Runs on initial setup and on every coordinator refresh. ``known`` tracks the
-    unique_ids already handed to ``async_add_entities`` for this platform, so each
-    entity is added exactly once; genuinely new objects (e.g. a freshly attached
-    disk) are picked up on a later refresh without re-adding existing entities.
-    """
+    """Collect new per-uid entities for one referenced (multi-object) description."""
     behaviors = coordinator.config_entry.options.get(CONF_BEHAVIORS, DEFAULT_BEHAVIORS)
     apply_exclude = BEHAVIOR_REMOVE_INACTIVE_NIC in behaviors
     new_entities: list = []
+    for uid in data:
+        # data is a mapping of uid -> values for reference descriptions;
+        # fall back to treating the iterated item itself as the values.
+        vals = data[uid] if isinstance(data, dict) else uid
+        if apply_exclude and _is_uid_excluded(entity_description, vals):
+            continue
+        obj = dispatcher[entity_description.func](coordinator, entity_description, uid)
+        _append_if_new(obj, seen, new_entities)
+    return new_entities
 
+
+def _collect_new_entities(
+    coordinator, descriptions, dispatcher, seen: set[str]
+) -> list:
+    """Return entity objects whose unique_id is not in ``seen`` yet.
+
+    ``seen`` is the set of unique_ids already registered for this config entry;
+    only genuinely new objects (e.g. a freshly attached disk) are returned, so
+    existing entities are never re-added.
+    """
+    new_entities: list = []
     for entity_description in descriptions:
         data = coordinator.data.get(entity_description.data_path)
         if data is None:
             continue
 
         if entity_description.data_reference:
-            for uid in data:
-                # data is a mapping of uid -> values for reference descriptions;
-                # fall back to treating the iterated item itself as the values.
-                vals = data[uid] if isinstance(data, dict) else uid
-                if apply_exclude and _is_uid_excluded(entity_description, vals):
-                    continue
-                obj = dispatcher[entity_description.func](
-                    coordinator, entity_description, uid
-                )
-                _append_if_new(obj, known, new_entities)
+            new_entities += _new_referenced_entities(
+                coordinator, entity_description, data, dispatcher, seen
+            )
         elif not _skip_keyless_description(entity_description, data):
             obj = dispatcher[entity_description.func](coordinator, entity_description)
-            _append_if_new(obj, known, new_entities)
+            _append_if_new(obj, seen, new_entities)
 
     return new_entities
 
 
-def _append_if_new(obj, known: set[str], new_entities: list) -> None:
+def _append_if_new(obj, seen: set[str], new_entities: list) -> None:
     """Append the entity to the batch when its unique_id has not been seen yet."""
-    if obj.unique_id not in known:
-        known.add(obj.unique_id)
+    if obj.unique_id not in seen:
+        seen.add(obj.unique_id)
         new_entities.append(obj)
 
 
@@ -120,10 +129,13 @@ async def async_add_entities(
 ):
     """Set up the platform and register dynamic entity discovery.
 
-    ``async_add_entities`` is only ever called for entities that have not been
-    added yet. Existing entities refresh themselves through the coordinator and
-    are never re-added, which previously caused "Platform truenas does not
-    generate unique IDs" spam on every update cycle.
+    On every coordinator refresh only entities whose unique_id is not already
+    registered for this config entry are added; existing entities refresh
+    themselves through the coordinator and are never re-added (which previously
+    caused "Platform truenas does not generate unique IDs" spam). The seen set is
+    derived from the entity registry each pass, so an entity removed at runtime is
+    recreated once its object reappears. An asyncio lock serializes overlapping
+    refreshes so an in-flight add is never duplicated.
     """
     platform = ep.async_get_current_platform()
     services = getattr(platform.platform, "SENSOR_SERVICES", [])
@@ -134,16 +146,24 @@ async def async_add_entities(
             service.name, service.schema, service.action
         )
 
-    known: set[str] = set()
+    add_lock = Lock()
 
     async def async_update_controller(coordinator):
         """Add entities for newly-appeared objects on each coordinator refresh."""
-        new_entities = _collect_new_entities(
-            coordinator, descriptions, dispatcher, known
-        )
-        if new_entities:
-            _LOGGER.debug("Adding %d new TrueNAS entities", len(new_entities))
-            await platform.async_add_entities(new_entities)
+        async with add_lock:
+            ent_reg = er.async_get(hass)
+            seen = {
+                entry.unique_id
+                for entry in er.async_entries_for_config_entry(
+                    ent_reg, config_entry.entry_id
+                )
+            }
+            new_entities = _collect_new_entities(
+                coordinator, descriptions, dispatcher, seen
+            )
+            if new_entities:
+                _LOGGER.debug("Adding %d new TrueNAS entities", len(new_entities))
+                await platform.async_add_entities(new_entities)
 
     await async_update_controller(hass.data[DOMAIN][config_entry.entry_id])
 
