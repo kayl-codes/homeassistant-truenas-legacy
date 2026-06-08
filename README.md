@@ -11,11 +11,6 @@
 [![Help localize](https://img.shields.io/badge/lokalise-join-green?style=plastic&logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyhpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDUuNi1jMTQ1IDc5LjE2MzQ5OSwgMjAxOC8wOC8xMy0xNjo0MDoyMiAgICAgICAgIj4gPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4gPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIgeG1sbnM6eG1wTU09Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9tbS8iIHhtbG5zOnN0UmVmPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvc1R5cGUvUmVzb3VyY2VSZWYjIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtcE1NOkRvY3VtZW50SUQ9InhtcC5kaWQ6REVCNzgzOEY4NDYxMTFFQUIyMEY4Njc0NzVDOUZFMkMiIHhtcE1NOkluc3RhbmNlSUQ9InhtcC5paWQ6REVCNzgzOEU4NDYxMTFFQUIyMEY4Njc0NzVDOUZFMkMiIHhtcDpDcmVhdG9yVG9vbD0iQWRvYmUgUGhvdG9zaG9wIENDIDIwMTcgKE1hY2ludG9zaCkiPiA8eG1wTU06RGVyaXZlZEZyb20gc3RSZWY6aW5zdGFuY2VJRD0ieG1wLmlpZDozN0ZDRUY4Rjc0M0UxMUU3QUQ2MDg4M0Q0MkE0NjNCNSIgc3RSZWY6ZG9jdW1lbnRJRD0ieG1wLmRpZDozN0ZDRUY5MDc0M0UxMUU3QUQ2MDg4M0Q0MkE0NjNCNSIvPiA8L3JkZjpEZXNjcmlwdGlvbj4gPC9yZGY6UkRGPiA8L3g6eG1wbWV0YT4gPD94cGFja2V0IGVuZD0iciI/Pjs1zyIAAABVSURBVHjaYvz//z8DOYCJgUxAtkYW9+mXyXIrI7l+ZGHc0k5nGxkupdHZxve1yQR1CjbPZURXh9dGoGJZIPUI2QC4JEgjIfyuJuk/uhgj3dMqQIABAPEGTZ/+h0kEAAAAAElFTkSuQmCC)](https://app.lokalise.com/public/9252786762290237258f09.36273104/)
 
 
-## Support
-If you find this project useful, you can support its development by buying me a coffee:
-[![Buy Me A Coffee](https://shields.io)](https://buymeacoffee.com/kayl74)
-
-
 ![English](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/flags/us.png)
 
 <picture>
@@ -36,7 +31,6 @@ Monitor and control your TrueNAS device from Home Assistant.
  * Monitor Snapshot Tasks
  * Control and Monitor Services
  * Control and Monitor Virtual Machines
- * Control and Monitor Jails (TrueNAS CORE only)
  * Control and Monitor Cloudsync
  * Monitor Active Alerts and Diagnostics
  * Create a Dataset Snapshot
@@ -69,19 +63,13 @@ Traffic sensors are created for active interfaces; the link sensor is always
 available so disconnected interfaces can be monitored too. Sensors for interfaces
 that no longer exist are cleaned up automatically on startup.
 
+![Network](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/network.png)
+
 ## Virtual Machines
 Control and monitor status and attributes for each TrueNAS virtual machine.
 Control of virtual machines is available through actions.
 
 ![Virtual Machines](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/vm.png)
-
-## Jails
-*TrueNAS CORE only*
-
-Control and monitor status and attributes for each TrueNAS jail.
-Jail control is available through actions.
-
-![Jails](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/jail.png)
 
 ## Cloudsync
 Control and monitor status and attributes for each TrueNAS cloudsync task.
@@ -114,11 +102,13 @@ Snapshot name will be automatically generated using datetime iso format with mic
 ## Services
 Control and monitor status and attributes for each TrueNAS service.
 Service control is available through actions.
+
 ![Services](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service_1.png)
 ![Services Control](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/service_2.png)
 
 ## Diagnostics
-Monitor overall system health and active alerts directly from the device page. The integration provides a dedicated diagnostic sensor that automatically detects any disk, pool, or SMART issues.
+Monitor overall system health and active alerts directly from the device page. The integration provides a dedicated diagnostic sensor that automatically detects any disk or pool issues.
+
 ![Diagnostics](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/diagnostics.png)
 
 ## Reboot and Shutdown
@@ -191,3 +181,18 @@ logger:
   logs:
     custom_components.truenas: debug
 ```
+
+
+## 🤝 Contributing
+Pull Requests are highly welcome! If you find bugs or have feature requests, please create an issue in the GitHub repository.
+
+
+## ❤️ Support
+This integration is actively maintained and updated in my spare time.
+
+If it has helped you, consider supporting ongoing development, bug fixes, compatibility updates, and future enhancements:
+
+- ❤️ GitHub Sponsors: https://github.com/sponsors/kayl-codes
+- ☕ Buy Me a Coffee: https://buymeacoffee.com/kayl74
+
+Every contribution is greatly appreciated. Thank you for your support!
