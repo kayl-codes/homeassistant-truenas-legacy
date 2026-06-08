@@ -93,9 +93,8 @@ _POOL_ENSURE_VALS = [
     {"name": "checksum_errors", "default": 0},
 ]
 
-# Job status fields shared by the cloudsync, replication and rsync task queries.
-_JOB_VALS = [
-    {"name": "state", "source": "job/state", "default": "unknown"},
+# Job-progress fields shared by the cloudsync, replication and rsync queries.
+_JOB_PROGRESS_VALS = [
     {
         "name": "time_started",
         "source": "job/time_started/$date",
@@ -114,6 +113,14 @@ _JOB_VALS = [
         "source": "job/progress/description",
         "default": "unknown",
     },
+]
+
+# Cloudsync and rsync report their status via the last job (job/state).
+# Replication has its own persistent ``state`` object (``state/state``) — the
+# value shown in the TrueNAS WebUI — and overrides this (see get_replication, #34).
+_JOB_STATUS_VALS = [
+    {"name": "state", "source": "job/state", "default": "unknown"},
+    *_JOB_PROGRESS_VALS,
 ]
 
 
@@ -1601,7 +1608,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "enabled", "type": "bool", "default": False},
                 {"name": "transfer_mode", "default": "unknown"},
                 {"name": "snapshot", "type": "bool", "default": False},
-                *_JOB_VALS,
+                *_JOB_STATUS_VALS,
             ],
         )
 
@@ -1628,9 +1635,24 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "transport", "default": "unknown"},
                 {"name": "auto", "type": "bool", "default": False},
                 {"name": "retention_policy", "default": "unknown"},
-                *_JOB_VALS,
+                # Replication state lives in its own persistent ``state`` object
+                # (what the WebUI shows), not in the last job, which is often null
+                # and otherwise leaves the sensor stuck on "unknown" (#34).
+                {"name": "state", "source": "state/state", "default": "unknown"},
+                # Keep the last job's state as a fallback so an unusual API
+                # response or schema change cannot regress the sensor to unknown.
+                {"name": "job_state", "source": "job/state", "default": "unknown"},
+                *_JOB_PROGRESS_VALS,
             ],
         )
+
+        # Prefer the persistent task state; fall back to the last job's state if
+        # state/state is missing or unknown. job_state is only a fallback source,
+        # so it is dropped afterwards rather than kept as a stray attribute.
+        for vals in self.ds["replication"].values():
+            if vals.get("state", "unknown") == "unknown":
+                vals["state"] = vals.get("job_state", "unknown")
+            vals.pop("job_state", None)
 
     # ---------------------------
     #   get_rsync
@@ -1653,7 +1675,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "direction", "default": "unknown"},
                 {"name": "mode", "default": "unknown"},
                 {"name": "enabled", "type": "bool", "default": False},
-                *_JOB_VALS,
+                *_JOB_STATUS_VALS,
             ],
         )
 
