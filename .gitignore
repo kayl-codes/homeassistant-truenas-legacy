@@ -8,3 +8,14 @@ __pycache__/
 # Generated requirements (built in CI from the Pipfile)
 /requirements.txt
 /requirements_tests.txt
+
+# Claude Code (personal/local settings — permission rules etc.)
+.claude/settings.local.json
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+
+# Local virtual environments
+.venv/
+venv/
