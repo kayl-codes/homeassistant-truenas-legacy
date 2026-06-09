@@ -130,9 +130,23 @@ class TrueNASVMBinarySensor(TrueNASBinarySensor):
 class TrueNASContainerBinarySensor(TrueNASBinarySensor):
     """Define a TrueNAS Container (virt instance) Binary Sensor."""
 
+    async def _current_status(self) -> str | None:
+        """Return the container's live status, or None if it can't be determined.
+
+        The cached coordinator status is stale right after a stop/start (until the
+        next poll), so the start/stop guards must query the current state.
+        """
+        instance = await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "virt.instance.get_instance",
+            [self._data["id"]],
+        )
+        return instance.get("status") if isinstance(instance, dict) else None
+
     async def start(self):
         """Start a container."""  # virt.instance.start
-        if self._data.get("running"):
+        # Only skip when positively running; if the status is unknown, proceed.
+        if await self._current_status() == "RUNNING":
             _LOGGER.warning("Container %s is already running", self._data.get("name"))
             return
 
@@ -145,7 +159,9 @@ class TrueNASContainerBinarySensor(TrueNASBinarySensor):
 
     async def stop(self):
         """Stop a container."""  # virt.instance.stop
-        if not self._data.get("running"):
+        # Only skip when positively not running; if unknown, proceed.
+        status = await self._current_status()
+        if status is not None and status != "RUNNING":
             _LOGGER.warning("Container %s is not running", self._data.get("name"))
             return
 
