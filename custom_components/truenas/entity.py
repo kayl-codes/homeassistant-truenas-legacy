@@ -11,7 +11,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION, CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_platform as ep
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -129,13 +128,17 @@ async def async_add_entities(
 ):
     """Set up the platform and register dynamic entity discovery.
 
-    On every coordinator refresh only entities whose unique_id is not already
-    registered for this config entry are added; existing entities refresh
-    themselves through the coordinator and are never re-added (which previously
-    caused "Platform truenas does not generate unique IDs" spam). The seen set is
-    derived from the entity registry each pass, so an entity removed at runtime is
-    recreated once its object reappears. An asyncio lock serializes overlapping
-    refreshes so an in-flight add is never duplicated.
+    On every coordinator refresh only entities whose unique_id has not been added
+    yet (tracked in ``seen``) are created; existing entities refresh themselves
+    through the coordinator and are never re-added (which previously caused
+    "Platform truenas does not generate unique IDs" spam). ``seen`` is a
+    per-platform-instance set that starts EMPTY — it must not be derived from the
+    entity registry, because on startup the registry already contains every
+    existing entity, so nothing would ever be (re)created and all entities would
+    be stuck "unavailable". A new platform instance (a reload) starts with an
+    empty set again, so registry-restored entities get their objects recreated.
+    An asyncio lock serializes overlapping refreshes so an in-flight add is never
+    duplicated.
     """
     platform = ep.async_get_current_platform()
     services = getattr(platform.platform, "SENSOR_SERVICES", [])
@@ -147,17 +150,11 @@ async def async_add_entities(
         )
 
     add_lock = Lock()
+    seen: set[str] = set()
 
     async def async_update_controller(coordinator):
         """Add entities for newly-appeared objects on each coordinator refresh."""
         async with add_lock:
-            ent_reg = er.async_get(hass)
-            seen = {
-                entry.unique_id
-                for entry in er.async_entries_for_config_entry(
-                    ent_reg, config_entry.entry_id
-                )
-            }
             new_entities = _collect_new_entities(
                 coordinator, descriptions, dispatcher, seen
             )
