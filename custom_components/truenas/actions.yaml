@@ -136,6 +136,38 @@ vm_stop:
       integration: truenas
       domain: binary_sensor
 
+vm_restart:
+  name: VM Restart
+  description: Restart a VM
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+container_start:
+  name: Container Start
+  description: Start a Container (Incus instance)
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+container_stop:
+  name: Container Stop
+  description: Stop a Container (Incus instance)
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+container_restart:
+  name: Container Restart
+  description: Restart a Container (Incus instance)
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
 app_start:
   name: App Start
   description: Start a app

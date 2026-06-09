@@ -30,6 +30,14 @@ from .const import (
     DOMAIN,
     KILOBITS_TO_KIBIBYTES_FACTOR,
     LINK_STATE_UP,
+    MONITOR_GROUP_CLOUDSYNC,
+    MONITOR_GROUP_CONTAINERS,
+    MONITOR_GROUP_DATASETS,
+    MONITOR_GROUP_REPLICATION,
+    MONITOR_GROUP_RSYNC,
+    MONITOR_GROUP_SNAPSHOTS,
+    MONITOR_GROUP_UPS,
+    MONITOR_GROUP_VMS,
     UPTIME_EPOCH_TOLERANCE_SECONDS,
 )
 
@@ -239,6 +247,17 @@ def _ups_value(graph_data: Any) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
 
 
+def _first_ipv4(aliases: Any) -> str:
+    """Return the first IPv4 address from a virt instance alias list, else 'unknown'."""
+    if isinstance(aliases, list):
+        for alias in aliases:
+            if isinstance(alias, dict) and alias.get("type") == "INET":
+                addr = alias.get("address")
+                if isinstance(addr, str) and addr:
+                    return addr
+    return "unknown"
+
+
 # ---------------------------
 #   TrueNASControllerData
 # ---------------------------
@@ -269,6 +288,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "system_info": {},
             "service": {},
             "vm": {},
+            "container": {},
             "cloudsync": {},
             "replication": {},
             "rsynctask": {},
@@ -339,6 +359,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.get_disk,
             self.get_dataset,
             self.get_vm,
+            self.get_container,
             self.get_cloudsync,
             self.get_replication,
             self.get_rsync,
@@ -1140,7 +1161,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_dataset(self) -> None:
         """Get datasets from TrueNAS."""
-        if not self._is_group_monitored("datasets"):
+        if not self._is_group_monitored(MONITOR_GROUP_DATASETS):
             self.ds["dataset"] = {}
             return
         self.ds["dataset"] = parse_api(
@@ -1444,7 +1465,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_vm(self) -> None:
         """Get VMs from TrueNAS."""
-        if not self._is_group_monitored("vms"):
+        if not self._is_group_monitored(MONITOR_GROUP_VMS):
             self.ds["vm"] = {}
             return
         self.ds["vm"] = parse_api(
@@ -1475,6 +1496,68 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 memory = 0
             self.ds["vm"][uid]["memory"] = round(memory / 1024)
             self.ds["vm"][uid]["running"] = vals["status"] == "RUNNING"
+
+    # ---------------------------
+    #   get_container
+    # ---------------------------
+    def get_container(self) -> None:
+        """Get virt CONTAINER instances (Incus) from TrueNAS.
+
+        ``virt.instance.query`` returns both CONTAINER and VM Incus instances;
+        only CONTAINER ones are surfaced here (legacy libvirt VMs are handled by
+        ``get_vm``). Container ``cpu``/``memory`` may be ``None``, so both are
+        treated null-safely (this was the upstream crash, see #26).
+        """
+        if not self._is_group_monitored(MONITOR_GROUP_CONTAINERS):
+            self.ds["container"] = {}
+            return
+
+        instances = self.api.query("virt.instance.query")
+        if isinstance(instances, list):
+            containers = [
+                inst
+                for inst in instances
+                if isinstance(inst, dict) and inst.get("type") == "CONTAINER"
+            ]
+        else:
+            _LOGGER.debug(
+                "virt.instance.query returned %s (expected list); no containers",
+                type(instances).__name__,
+            )
+            containers = []
+
+        self.ds["container"] = parse_api(
+            data=self.ds["container"],
+            source=containers,
+            key="id",
+            vals=[
+                {"name": "id", "default": "unknown"},
+                {"name": "name", "default": "unknown"},
+                {"name": "type", "default": "unknown"},
+                {"name": "cpu", "default": 0},
+                {"name": "memory", "default": 0},
+                {"name": "autostart", "type": "bool", "default": False},
+                {"name": "image", "source": "image/description", "default": "unknown"},
+                {"name": "status", "default": "unknown"},
+                {"name": "aliases", "default": []},
+            ],
+            ensure_vals=[
+                {"name": "running", "type": "bool", "default": False},
+                {"name": "ip_address", "default": "unknown"},
+            ],
+        )
+
+        for uid, vals in self.ds["container"].items():
+            # cpu is reported as a string (e.g. "1") and may be null; normalize to
+            # an int so the attribute is numeric like memory.
+            self.ds["container"][uid]["cpu"] = _to_int(vals.get("cpu"))
+            # Container memory is reported in bytes and may be null; show MiB.
+            memory = vals.get("memory")
+            if not isinstance(memory, (int, float)):
+                memory = 0
+            self.ds["container"][uid]["memory"] = round(memory / 1048576)
+            self.ds["container"][uid]["running"] = vals.get("status") == "RUNNING"
+            self.ds["container"][uid]["ip_address"] = _first_ipv4(vals.get("aliases"))
 
     # ---------------------------
     #   get_alerts
@@ -1539,7 +1622,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_ups(self) -> None:
         """Get UPS readings from the netdata UPS graphs, if a UPS is present."""
-        if not self._is_group_monitored("ups"):
+        if not self._is_group_monitored(MONITOR_GROUP_UPS):
             self.ds["ups"] = {}
             return
         if self._ups_graphs is None:
@@ -1593,7 +1676,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_cloudsync(self) -> None:
         """Get cloudsync from TrueNAS."""
-        if not self._is_group_monitored("cloudsync"):
+        if not self._is_group_monitored(MONITOR_GROUP_CLOUDSYNC):
             self.ds["cloudsync"] = {}
             return
         self.ds["cloudsync"] = parse_api(
@@ -1617,7 +1700,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_replication(self) -> None:
         """Get replication from TrueNAS."""
-        if not self._is_group_monitored("replication"):
+        if not self._is_group_monitored(MONITOR_GROUP_REPLICATION):
             self.ds["replication"] = {}
             return
         self.ds["replication"] = parse_api(
@@ -1659,7 +1742,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_rsync(self) -> None:
         """Get rsync tasks from TrueNAS."""
-        if not self._is_group_monitored("rsync"):
+        if not self._is_group_monitored(MONITOR_GROUP_RSYNC):
             self.ds["rsynctask"] = {}
             return
         self.ds["rsynctask"] = parse_api(
@@ -1684,7 +1767,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_snapshottask(self) -> None:
         """Get snapshot tasks from TrueNAS."""
-        if not self._is_group_monitored("snapshots"):
+        if not self._is_group_monitored(MONITOR_GROUP_SNAPSHOTS):
             self.ds["snapshottask"] = {}
             return
         self.ds["snapshottask"] = parse_api(

@@ -57,6 +57,7 @@ from .const import (
     ERR_WS_NOT_SUPPORTED,
     KNOWN_DOMAINS,
     MONITOR_GROUP_CLOUDSYNC,
+    MONITOR_GROUP_CONTAINERS,
     MONITOR_GROUP_DATASETS,
     MONITOR_GROUP_REPLICATION,
     MONITOR_GROUP_RSYNC,
@@ -139,6 +140,7 @@ def _options_schema(options: Mapping[str, Any]) -> vol.Schema:
     group_options = [
         selector.SelectOptionDict(value=MONITOR_GROUP_UPS, label="UPS"),
         selector.SelectOptionDict(value=MONITOR_GROUP_VMS, label="Virtual Machines"),
+        selector.SelectOptionDict(value=MONITOR_GROUP_CONTAINERS, label="Containers"),
         selector.SelectOptionDict(value=MONITOR_GROUP_CLOUDSYNC, label="Cloudsync"),
         selector.SelectOptionDict(value=MONITOR_GROUP_REPLICATION, label="Replication"),
         selector.SelectOptionDict(value=MONITOR_GROUP_RSYNC, label="Rsync Tasks"),

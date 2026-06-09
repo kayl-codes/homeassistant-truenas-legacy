@@ -116,6 +116,7 @@ DEFAULT_BEHAVIORS = [BEHAVIOR_SKIP_DISABLED_CRONJOBS]
 CONF_MONITORED_GROUPS = "monitored_groups"
 MONITOR_GROUP_UPS = "ups"
 MONITOR_GROUP_VMS = "vms"
+MONITOR_GROUP_CONTAINERS = "containers"
 MONITOR_GROUP_CLOUDSYNC = "cloudsync"
 MONITOR_GROUP_REPLICATION = "replication"
 MONITOR_GROUP_RSYNC = "rsync"
@@ -124,6 +125,7 @@ MONITOR_GROUP_DATASETS = "datasets"
 DEFAULT_MONITORED_GROUPS = [
     MONITOR_GROUP_UPS,
     MONITOR_GROUP_VMS,
+    MONITOR_GROUP_CONTAINERS,
     MONITOR_GROUP_CLOUDSYNC,
     MONITOR_GROUP_REPLICATION,
     MONITOR_GROUP_RSYNC,
@@ -136,6 +138,7 @@ DEFAULT_MONITORED_GROUPS = [
 GROUP_DATA_PATHS: dict[str, set[str]] = {
     MONITOR_GROUP_UPS: {"ups"},
     MONITOR_GROUP_VMS: {"vm"},
+    MONITOR_GROUP_CONTAINERS: {"container"},
     MONITOR_GROUP_CLOUDSYNC: {"cloudsync"},
     MONITOR_GROUP_REPLICATION: {"replication"},
     MONITOR_GROUP_RSYNC: {"rsynctask"},
@@ -159,6 +162,20 @@ SCHEMA_SERVICE_VM_START = {
 }
 SERVICE_VM_STOP = "vm_stop"
 SCHEMA_SERVICE_VM_STOP = {}
+SERVICE_VM_RESTART = "vm_restart"
+SCHEMA_SERVICE_VM_RESTART = {}
+
+SERVICE_CONTAINER_START = "container_start"
+SCHEMA_SERVICE_CONTAINER_START = {}
+SERVICE_CONTAINER_STOP = "container_stop"
+SCHEMA_SERVICE_CONTAINER_STOP = {}
+SERVICE_CONTAINER_RESTART = "container_restart"
+SCHEMA_SERVICE_CONTAINER_RESTART = {}
+
+# Options passed to virt.instance.stop / virt.instance.restart: force a hard
+# stop (force=True) with no graceful-shutdown wait (timeout=-1). Kept here so the
+# TrueNAS stop semantics are easy to adjust in one place.
+VIRT_INSTANCE_STOP_OPTIONS = {"force": True, "timeout": -1}
 
 SERVICE_APP_START = "app_start"
 SCHEMA_SERVICE_APP_START = {}

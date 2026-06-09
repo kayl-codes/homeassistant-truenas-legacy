@@ -14,18 +14,26 @@ from homeassistant.helpers.entity import EntityCategory
 from .const import (
     SCHEMA_SERVICE_APP_START,
     SCHEMA_SERVICE_APP_STOP,
+    SCHEMA_SERVICE_CONTAINER_RESTART,
+    SCHEMA_SERVICE_CONTAINER_START,
+    SCHEMA_SERVICE_CONTAINER_STOP,
     SCHEMA_SERVICE_SERVICE_RELOAD,
     SCHEMA_SERVICE_SERVICE_RESTART,
     SCHEMA_SERVICE_SERVICE_START,
     SCHEMA_SERVICE_SERVICE_STOP,
+    SCHEMA_SERVICE_VM_RESTART,
     SCHEMA_SERVICE_VM_START,
     SCHEMA_SERVICE_VM_STOP,
     SERVICE_APP_START,
     SERVICE_APP_STOP,
+    SERVICE_CONTAINER_RESTART,
+    SERVICE_CONTAINER_START,
+    SERVICE_CONTAINER_STOP,
     SERVICE_SERVICE_RELOAD,
     SERVICE_SERVICE_RESTART,
     SERVICE_SERVICE_START,
     SERVICE_SERVICE_STOP,
+    SERVICE_VM_RESTART,
     SERVICE_VM_START,
     SERVICE_VM_STOP,
 )
@@ -50,6 +58,16 @@ DEVICE_ATTRIBUTES_VM = (
     "memory",
     "autostart",
     "image",
+)
+
+DEVICE_ATTRIBUTES_CONTAINER = (
+    "type",
+    "status",
+    "cpu",
+    "memory",
+    "autostart",
+    "image",
+    "ip_address",
 )
 
 DEVICE_ATTRIBUTES_SERVICE = (
@@ -141,6 +159,22 @@ SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
         func="TrueNASVMBinarySensor",
     ),
     TrueNASBinarySensorEntityDescription(
+        key="container",
+        name="",
+        icon_enabled="mdi:cube-outline",
+        icon_disabled="mdi:cube-off-outline",
+        device_class=None,
+        entity_category=None,
+        ha_group="Containers",
+        data_path="container",
+        data_is_on="running",
+        data_name="name",
+        data_uid=None,
+        data_reference="id",
+        data_attributes_list=DEVICE_ATTRIBUTES_CONTAINER,
+        func="TrueNASContainerBinarySensor",
+    ),
+    TrueNASBinarySensorEntityDescription(
         key="service",
         name="",
         icon_enabled="mdi:cog",
@@ -200,6 +234,14 @@ class BinarySensorService(NamedTuple):
 SENSOR_SERVICES: tuple[BinarySensorService, ...] = (
     BinarySensorService(SERVICE_VM_START, SCHEMA_SERVICE_VM_START, "start"),
     BinarySensorService(SERVICE_VM_STOP, SCHEMA_SERVICE_VM_STOP, "stop"),
+    BinarySensorService(SERVICE_VM_RESTART, SCHEMA_SERVICE_VM_RESTART, "restart"),
+    BinarySensorService(
+        SERVICE_CONTAINER_START, SCHEMA_SERVICE_CONTAINER_START, "start"
+    ),
+    BinarySensorService(SERVICE_CONTAINER_STOP, SCHEMA_SERVICE_CONTAINER_STOP, "stop"),
+    BinarySensorService(
+        SERVICE_CONTAINER_RESTART, SCHEMA_SERVICE_CONTAINER_RESTART, "restart"
+    ),
     BinarySensorService(SERVICE_SERVICE_START, SCHEMA_SERVICE_SERVICE_START, "start"),
     BinarySensorService(SERVICE_SERVICE_STOP, SCHEMA_SERVICE_SERVICE_STOP, "stop"),
     BinarySensorService(
