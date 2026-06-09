@@ -239,6 +239,17 @@ def _ups_value(graph_data: Any) -> float | None:
     return round(sum(values) / len(values), 2) if values else None
 
 
+def _first_ipv4(aliases: Any) -> str:
+    """Return the first IPv4 address from a virt instance alias list, else 'unknown'."""
+    if isinstance(aliases, list):
+        for alias in aliases:
+            if isinstance(alias, dict) and alias.get("type") == "INET":
+                addr = alias.get("address")
+                if isinstance(addr, str) and addr:
+                    return addr
+    return "unknown"
+
+
 # ---------------------------
 #   TrueNASControllerData
 # ---------------------------
@@ -269,6 +280,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "system_info": {},
             "service": {},
             "vm": {},
+            "container": {},
             "cloudsync": {},
             "replication": {},
             "rsynctask": {},
@@ -339,6 +351,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.get_disk,
             self.get_dataset,
             self.get_vm,
+            self.get_container,
             self.get_cloudsync,
             self.get_replication,
             self.get_rsync,
@@ -1475,6 +1488,62 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 memory = 0
             self.ds["vm"][uid]["memory"] = round(memory / 1024)
             self.ds["vm"][uid]["running"] = vals["status"] == "RUNNING"
+
+    # ---------------------------
+    #   get_container
+    # ---------------------------
+    def get_container(self) -> None:
+        """Get virt CONTAINER instances (Incus) from TrueNAS.
+
+        ``virt.instance.query`` returns both CONTAINER and VM Incus instances;
+        only CONTAINER ones are surfaced here (legacy libvirt VMs are handled by
+        ``get_vm``). Container ``cpu``/``memory`` may be ``None``, so both are
+        treated null-safely (this was the upstream crash, see #26).
+        """
+        if not self._is_group_monitored("containers"):
+            self.ds["container"] = {}
+            return
+
+        instances = self.api.query("virt.instance.query")
+        containers = (
+            [
+                inst
+                for inst in instances
+                if isinstance(inst, dict) and inst.get("type") == "CONTAINER"
+            ]
+            if isinstance(instances, list)
+            else []
+        )
+
+        self.ds["container"] = parse_api(
+            data=self.ds["container"],
+            source=containers,
+            key="id",
+            vals=[
+                {"name": "id", "default": "unknown"},
+                {"name": "name", "default": "unknown"},
+                {"name": "type", "default": "unknown"},
+                {"name": "cpu", "default": "unknown"},
+                {"name": "memory", "default": 0},
+                {"name": "autostart", "type": "bool", "default": False},
+                {"name": "image", "source": "image/description", "default": "unknown"},
+                {"name": "status", "default": "unknown"},
+                {"name": "aliases", "default": []},
+            ],
+            ensure_vals=[
+                {"name": "running", "type": "bool", "default": False},
+                {"name": "ip_address", "default": "unknown"},
+            ],
+        )
+
+        for uid, vals in self.ds["container"].items():
+            # Container memory is reported in bytes and may be null; show MiB.
+            memory = vals.get("memory")
+            if not isinstance(memory, (int, float)):
+                memory = 0
+            self.ds["container"][uid]["memory"] = round(memory / 1048576)
+            self.ds["container"][uid]["running"] = vals.get("status") == "RUNNING"
+            self.ds["container"][uid]["ip_address"] = _first_ipv4(vals.get("aliases"))
 
     # ---------------------------
     #   get_alerts

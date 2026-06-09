@@ -33,6 +33,7 @@ async def async_setup_entry(
     dispatcher = {
         "TrueNASBinarySensor": TrueNASBinarySensor,
         "TrueNASVMBinarySensor": TrueNASVMBinarySensor,
+        "TrueNASContainerBinarySensor": TrueNASContainerBinarySensor,
         "TrueNASServiceBinarySensor": TrueNASServiceBinarySensor,
         "TrueNASAppBinarySensor": TrueNASAppBinarySensor,
     }
@@ -121,6 +122,39 @@ class TrueNASVMBinarySensor(TrueNASBinarySensor):
             "vm.stop",
             [self._data["id"], {"force": True, "force_after_timeout": True}],
         )
+
+
+# ---------------------------
+#   TrueNASContainerBinarySensor
+# ---------------------------
+class TrueNASContainerBinarySensor(TrueNASBinarySensor):
+    """Define a TrueNAS Container (virt instance) Binary Sensor."""
+
+    async def start(self):
+        """Start a container."""  # virt.instance.start
+        if self._data.get("running"):
+            _LOGGER.warning("Container %s is already running", self._data.get("name"))
+            return
+
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "virt.instance.start",
+            [self._data["id"]],
+        )
+        await self.coordinator.async_request_refresh()
+
+    async def stop(self):
+        """Stop a container."""  # virt.instance.stop
+        if not self._data.get("running"):
+            _LOGGER.warning("Container %s is not running", self._data.get("name"))
+            return
+
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "virt.instance.stop",
+            [self._data["id"], {"force": True, "timeout": -1}],
+        )
+        await self.coordinator.async_request_refresh()
 
 
 # ---------------------------
