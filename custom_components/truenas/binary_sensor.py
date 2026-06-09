@@ -174,6 +174,16 @@ class TrueNASContainerBinarySensor(TrueNASBinarySensor):
         )
         await self.coordinator.async_request_refresh()
 
+    async def restart(self):
+        """Restart a container."""  # virt.instance.restart
+        # A restart always applies (no state guard): it stops and starts again.
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "virt.instance.restart",
+            [self._data["id"], {"force": True, "timeout": -1}],
+        )
+        await self.coordinator.async_request_refresh()
+
 
 # ---------------------------
 #   TrueNASServiceBinarySensor
