@@ -30,7 +30,8 @@ Monitor and control your TrueNAS device from Home Assistant.
  * Monitor and run Rsync Tasks
  * Monitor Snapshot Tasks
  * Control and Monitor Services
- * Control and Monitor Virtual Machines
+ * Control and Monitor Virtual Machines (start / stop / restart)
+ * Control and Monitor Containers (Incus instances: start / stop / restart)
  * Control and Monitor Cloudsync
  * Monitor Active Alerts and Diagnostics
  * Create a Dataset Snapshot
@@ -67,9 +68,21 @@ that no longer exist are cleaned up automatically on startup.
 
 ## Virtual Machines
 Control and monitor status and attributes for each TrueNAS virtual machine.
-Control of virtual machines is available through actions.
+Start, stop and restart are available through the `vm_start`, `vm_stop` and `vm_restart` actions.
 
 ![Virtual Machines](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/vm.png)
+
+## Containers
+Monitor each TrueNAS **Container** (Incus instance, TrueNAS 25.04+) as a binary sensor,
+with type, status, CPU, memory, autostart, image and IP address as attributes.
+Start, stop and restart are available through the `container_start`, `container_stop`
+and `container_restart` actions (target the container's binary sensor).
+
+> Containers are a new monitored group. On an existing install, enable **Containers**
+> once under *Settings → Devices & Services → TrueNAS → Configure → Monitored groups*.
+>
+> Note: a restart is a background job, so the brief down-state may not be sampled by the
+> poll — the steady state is always reported correctly.
 
 ## Cloudsync
 Control and monitor status and attributes for each TrueNAS cloudsync task.
@@ -163,7 +176,7 @@ After setup you can fine-tune the integration via **Settings → Devices & Servi
 * **Behaviour**
   * *Skip disabled cronjobs* - hide cronjobs that are disabled in TrueNAS (on by default).
   * *Hide RX/TX sensors for disconnected NICs* - when enabled, traffic sensors are only created for connected interfaces; when disabled (default), every interface gets RX/TX sensors.
-* **Monitored groups** - Enable or disable whole sensor groups: **UPS**, **Virtual Machines**, **Cloudsync**, **Replication**, **Rsync Tasks**, **Snapshot Tasks** and **Datasets**. Disabling a group skips its API query entirely (saving resources) and removes its entities and device from Home Assistant on the next reload. Core groups (system, network, pools, disks, apps, services, alerts) are always monitored.
+* **Monitored groups** - Enable or disable whole sensor groups: **UPS**, **Virtual Machines**, **Containers**, **Cloudsync**, **Replication**, **Rsync Tasks**, **Snapshot Tasks** and **Datasets**. Disabling a group skips its API query entirely (saving resources) and removes its entities and device from Home Assistant on the next reload. Core groups (system, network, pools, disks, apps, services, alerts) are always monitored.
 
 # Development
 
