@@ -5,6 +5,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# GitHub Copilot & IDE spezifisch
+.github/copilot-instructions/
+.vscode/
+
 # Generated requirements (built in CI from the Pipfile)
 /requirements.txt
 /requirements_tests.txt
