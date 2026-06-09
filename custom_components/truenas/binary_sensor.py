@@ -147,12 +147,19 @@ class TrueNASContainerBinarySensor(TrueNASBinarySensor):
         The cached coordinator status is stale right after a stop/start (until the
         next poll), so the start/stop guards query the current state via
         ``virt.instance.query`` (the response shape is known: top-level ``status``).
+        A transient query failure returns None so the caller proceeds (fail-safe).
         """
-        instances = await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "virt.instance.query",
-            [[["id", "=", self._data["id"]]]],
-        )
+        try:
+            instances = await self.hass.async_add_executor_job(
+                self.coordinator.api.query,
+                "virt.instance.query",
+                [[["id", "=", self._data["id"]]]],
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Failed to query status for container %s", self._data.get("name")
+            )
+            return None
         instance = instances[0] if isinstance(instances, list) and instances else None
         return instance.get("status") if isinstance(instance, dict) else None
 

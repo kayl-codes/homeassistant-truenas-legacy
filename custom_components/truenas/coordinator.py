@@ -30,6 +30,14 @@ from .const import (
     DOMAIN,
     KILOBITS_TO_KIBIBYTES_FACTOR,
     LINK_STATE_UP,
+    MONITOR_GROUP_CLOUDSYNC,
+    MONITOR_GROUP_CONTAINERS,
+    MONITOR_GROUP_DATASETS,
+    MONITOR_GROUP_REPLICATION,
+    MONITOR_GROUP_RSYNC,
+    MONITOR_GROUP_SNAPSHOTS,
+    MONITOR_GROUP_UPS,
+    MONITOR_GROUP_VMS,
     UPTIME_EPOCH_TOLERANCE_SECONDS,
 )
 
@@ -1153,7 +1161,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_dataset(self) -> None:
         """Get datasets from TrueNAS."""
-        if not self._is_group_monitored("datasets"):
+        if not self._is_group_monitored(MONITOR_GROUP_DATASETS):
             self.ds["dataset"] = {}
             return
         self.ds["dataset"] = parse_api(
@@ -1457,7 +1465,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_vm(self) -> None:
         """Get VMs from TrueNAS."""
-        if not self._is_group_monitored("vms"):
+        if not self._is_group_monitored(MONITOR_GROUP_VMS):
             self.ds["vm"] = {}
             return
         self.ds["vm"] = parse_api(
@@ -1500,20 +1508,23 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ``get_vm``). Container ``cpu``/``memory`` may be ``None``, so both are
         treated null-safely (this was the upstream crash, see #26).
         """
-        if not self._is_group_monitored("containers"):
+        if not self._is_group_monitored(MONITOR_GROUP_CONTAINERS):
             self.ds["container"] = {}
             return
 
         instances = self.api.query("virt.instance.query")
-        containers = (
-            [
+        if isinstance(instances, list):
+            containers = [
                 inst
                 for inst in instances
                 if isinstance(inst, dict) and inst.get("type") == "CONTAINER"
             ]
-            if isinstance(instances, list)
-            else []
-        )
+        else:
+            _LOGGER.debug(
+                "virt.instance.query returned %s (expected list); no containers",
+                type(instances).__name__,
+            )
+            containers = []
 
         self.ds["container"] = parse_api(
             data=self.ds["container"],
@@ -1611,7 +1622,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_ups(self) -> None:
         """Get UPS readings from the netdata UPS graphs, if a UPS is present."""
-        if not self._is_group_monitored("ups"):
+        if not self._is_group_monitored(MONITOR_GROUP_UPS):
             self.ds["ups"] = {}
             return
         if self._ups_graphs is None:
@@ -1665,7 +1676,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_cloudsync(self) -> None:
         """Get cloudsync from TrueNAS."""
-        if not self._is_group_monitored("cloudsync"):
+        if not self._is_group_monitored(MONITOR_GROUP_CLOUDSYNC):
             self.ds["cloudsync"] = {}
             return
         self.ds["cloudsync"] = parse_api(
@@ -1689,7 +1700,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_replication(self) -> None:
         """Get replication from TrueNAS."""
-        if not self._is_group_monitored("replication"):
+        if not self._is_group_monitored(MONITOR_GROUP_REPLICATION):
             self.ds["replication"] = {}
             return
         self.ds["replication"] = parse_api(
@@ -1731,7 +1742,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_rsync(self) -> None:
         """Get rsync tasks from TrueNAS."""
-        if not self._is_group_monitored("rsync"):
+        if not self._is_group_monitored(MONITOR_GROUP_RSYNC):
             self.ds["rsynctask"] = {}
             return
         self.ds["rsynctask"] = parse_api(
@@ -1756,7 +1767,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---------------------------
     def get_snapshottask(self) -> None:
         """Get snapshot tasks from TrueNAS."""
-        if not self._is_group_monitored("snapshots"):
+        if not self._is_group_monitored(MONITOR_GROUP_SNAPSHOTS):
             self.ds["snapshottask"] = {}
             return
         self.ds["snapshottask"] = parse_api(
