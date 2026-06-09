@@ -13,6 +13,7 @@ from .binary_sensor_types import (  # noqa: F401
     SENSOR_SERVICES,
     SENSOR_TYPES,
 )
+from .const import VIRT_INSTANCE_STOP_OPTIONS
 from .entity import TrueNASEntity, async_add_entities
 
 _LOGGER = getLogger(__name__)
@@ -180,7 +181,7 @@ class TrueNASContainerBinarySensor(TrueNASBinarySensor):
         await self.hass.async_add_executor_job(
             self.coordinator.api.query,
             "virt.instance.stop",
-            [self._data["id"], {"force": True, "timeout": -1}],
+            [self._data["id"], VIRT_INSTANCE_STOP_OPTIONS],
         )
         await self.coordinator.async_request_refresh()
 
@@ -190,7 +191,7 @@ class TrueNASContainerBinarySensor(TrueNASBinarySensor):
         await self.hass.async_add_executor_job(
             self.coordinator.api.query,
             "virt.instance.restart",
-            [self._data["id"], {"force": True, "timeout": -1}],
+            [self._data["id"], VIRT_INSTANCE_STOP_OPTIONS],
         )
         await self.coordinator.async_request_refresh()
 

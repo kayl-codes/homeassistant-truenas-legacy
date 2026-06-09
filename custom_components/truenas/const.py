@@ -172,6 +172,11 @@ SCHEMA_SERVICE_CONTAINER_STOP = {}
 SERVICE_CONTAINER_RESTART = "container_restart"
 SCHEMA_SERVICE_CONTAINER_RESTART = {}
 
+# Options passed to virt.instance.stop / virt.instance.restart: force a hard
+# stop (force=True) with no graceful-shutdown wait (timeout=-1). Kept here so the
+# TrueNAS stop semantics are easy to adjust in one place.
+VIRT_INSTANCE_STOP_OPTIONS = {"force": True, "timeout": -1}
+
 SERVICE_APP_START = "app_start"
 SCHEMA_SERVICE_APP_START = {}
 SERVICE_APP_STOP = "app_stop"

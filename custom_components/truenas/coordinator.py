@@ -1523,7 +1523,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"name": "id", "default": "unknown"},
                 {"name": "name", "default": "unknown"},
                 {"name": "type", "default": "unknown"},
-                {"name": "cpu", "default": "unknown"},
+                {"name": "cpu", "default": 0},
                 {"name": "memory", "default": 0},
                 {"name": "autostart", "type": "bool", "default": False},
                 {"name": "image", "source": "image/description", "default": "unknown"},
@@ -1537,6 +1537,9 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         for uid, vals in self.ds["container"].items():
+            # cpu is reported as a string (e.g. "1") and may be null; normalize to
+            # an int so the attribute is numeric like memory.
+            self.ds["container"][uid]["cpu"] = _to_int(vals.get("cpu"))
             # Container memory is reported in bytes and may be null; show MiB.
             memory = vals.get("memory")
             if not isinstance(memory, (int, float)):
