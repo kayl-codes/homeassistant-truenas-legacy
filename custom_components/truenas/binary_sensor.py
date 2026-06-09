@@ -123,6 +123,16 @@ class TrueNASVMBinarySensor(TrueNASBinarySensor):
             [self._data["id"], {"force": True, "force_after_timeout": True}],
         )
 
+    async def restart(self):
+        """Restart a VM."""  # vm.restart
+        # A restart always applies (no state guard): it stops and starts again.
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "vm.restart",
+            [self._data["id"]],
+        )
+        await self.coordinator.async_request_refresh()
+
 
 # ---------------------------
 #   TrueNASContainerBinarySensor
