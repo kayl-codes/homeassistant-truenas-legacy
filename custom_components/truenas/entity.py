@@ -155,9 +155,19 @@ async def async_add_entities(
         )
 
     add_lock = Lock()
+    this_coordinator = hass.data[DOMAIN][config_entry.entry_id]
 
     async def async_update_controller(coordinator):
         """Add entities for newly-appeared objects on each coordinator refresh."""
+        # SIGNAL_UPDATE_SENSORS is a global dispatcher signal, so with more than
+        # one TrueNAS config entry every platform receives every entry's refresh.
+        # Ignore refreshes from other entries — otherwise this platform would
+        # build the *other* instance's entities and try to add them here, causing
+        # "Platform truenas does not generate unique IDs … already exists" spam on
+        # multi-instance setups (#34).
+        if coordinator is not this_coordinator:
+            return
+
         async with add_lock:
             loaded = {
                 entity.unique_id
@@ -171,7 +181,7 @@ async def async_add_entities(
                 _LOGGER.debug("Adding %d new TrueNAS entities", len(new_entities))
                 await platform.async_add_entities(new_entities)
 
-    await async_update_controller(hass.data[DOMAIN][config_entry.entry_id])
+    await async_update_controller(this_coordinator)
 
     unsub = async_dispatcher_connect(
         hass, SIGNAL_UPDATE_SENSORS, async_update_controller
