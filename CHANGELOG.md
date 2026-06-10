@@ -32,7 +32,7 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 
 ### Added
 - **Containers (#26):** Each TrueNAS Container (Incus instance) is a binary sensor
-  (running on/off) with type, status, CPU, memory, autostart, image and IP-address
+  (running on/off) with type, status, CPU, memory, autostart, image and IP address
   attributes, grouped under their own device.
 - **Start / Stop / Restart** actions for containers (`container_start/stop/restart`,
   `virt.instance.*`); the live state is checked before start/stop.
