@@ -344,6 +344,41 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return group in monitored
 
     # ---------------------------
+    #   set_optimistic_running
+    # ---------------------------
+    def set_optimistic_running(self, data_path: str, object_id: Any) -> None:
+        """Optimistically mark a task's state as RUNNING for instant UI feedback.
+
+        Run actions/buttons often complete a task faster than the poll interval,
+        so the transient RUNNING state is gone before the next poll samples it and
+        the sensor stays on its previous value with no sign the trigger worked.
+        Setting RUNNING in-memory and notifying listeners gives that feedback; the
+        next regular poll re-syncs the state to whatever TrueNAS reports.
+        """
+        group = self.ds.get(data_path)
+        if isinstance(group, dict) and isinstance(group.get(object_id), dict):
+            group[object_id]["state"] = "RUNNING"
+            self.async_update_listeners()
+        else:
+            _LOGGER.debug(
+                "set_optimistic_running: no '%s' object with id %r to mark RUNNING",
+                data_path,
+                object_id,
+            )
+
+    # ---------------------------
+    #   async_run_task
+    # ---------------------------
+    async def async_run_task(self, method: str, object_id: Any, data_path: str) -> None:
+        """Trigger a task's run method, then optimistically mark it RUNNING.
+
+        Shared by the run buttons (button.py) and the *_run sensor actions
+        (sensor.py) so the trigger + optimistic-state logic lives in one place.
+        """
+        await self.hass.async_add_executor_job(self.api.query, method, [object_id])
+        self.set_optimistic_running(data_path, object_id)
+
+    # ---------------------------
     #   _async_update_data
     # ---------------------------
     async def _async_update_data(self):

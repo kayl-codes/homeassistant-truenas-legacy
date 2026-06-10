@@ -1,0 +1,180 @@
+---
+# Home Assistant reads action/service descriptions from THIS file (services.yaml).
+# Keep it in sync with the services registered via SENSOR_SERVICES in
+# sensor_types.py / binary_sensor_types.py.
+
+cloudsync_run:
+  name: Cloudsync run
+  description: Start a cloudsync job (target the cloudsync sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+cloudsync_abort:
+  name: Cloudsync abort
+  description: Abort a running cloudsync job (target the cloudsync sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+rsync_run:
+  name: Rsync run
+  description: Start an rsync task on demand (target the rsync task sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+replication_run:
+  name: Replication run
+  description: Start a replication task on demand (target the replication sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+snapshottask_run:
+  name: Snapshot task run
+  description: >-
+    Run a periodic snapshot task now (target the snapshot task sensor). Note: if
+    the task's naming schema only has minute resolution (e.g. auto-%Y-%m-%d_%H-%M),
+    running it twice within the same minute fails on TrueNAS because the snapshot
+    name already exists.
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+dataset_snapshot:
+  name: Create dataset snapshot
+  description: >-
+    Create an on-demand ZFS snapshot of the targeted dataset. The snapshot is
+    taken immediately and named custom-<timestamp>, independent of any periodic
+    snapshot task (target a dataset sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+system_reboot:
+  name: Reboot TrueNAS
+  description: Reboot the TrueNAS system (target the Uptime sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+system_shutdown:
+  name: Shut down TrueNAS
+  description: Shut down the TrueNAS system (target the Uptime sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+service_start:
+  name: Service start
+  description: Start a TrueNAS service (target the service binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+service_stop:
+  name: Service stop
+  description: Stop a TrueNAS service (target the service binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+service_restart:
+  name: Service restart
+  description: Restart a TrueNAS service (target the service binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+service_reload:
+  name: Service reload
+  description: Reload a TrueNAS service (target the service binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+vm_start:
+  name: VM start
+  description: Start a virtual machine (target the VM binary sensor).
+  fields:
+    overcommit:
+      name: Overcommit memory
+      description: >-
+        Allow the VM to launch even when there is insufficient free memory.
+      required: false
+      default: false
+      selector:
+        boolean:
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+vm_stop:
+  name: VM stop
+  description: Stop a virtual machine (target the VM binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+vm_restart:
+  name: VM restart
+  description: Restart a virtual machine (target the VM binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+container_start:
+  name: Container start
+  description: Start a container (Incus instance; target the container binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+container_stop:
+  name: Container stop
+  description: Stop a container (Incus instance; target the container binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+container_restart:
+  name: Container restart
+  description: Restart a container (Incus instance; target the container binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+app_start:
+  name: App start
+  description: Start an app (target the app binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor
+
+app_stop:
+  name: App stop
+  description: Stop an app (target the app binary sensor).
+  target:
+    entity:
+      integration: truenas
+      domain: binary_sensor

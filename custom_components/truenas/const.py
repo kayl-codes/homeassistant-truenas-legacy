@@ -4,7 +4,13 @@ import voluptuous as vol
 from homeassistant.const import Platform
 from homeassistant.helpers import config_validation as cv
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.UPDATE, Platform.SWITCH]
+PLATFORMS = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.UPDATE,
+    Platform.SWITCH,
+]
 
 DOMAIN = "truenas"
 DEFAULT_NAME = "root"
@@ -93,6 +99,17 @@ SCHEMA_SERVICE_REPLICATION_RUN = {}
 
 SERVICE_DATASET_SNAPSHOT = "dataset_snapshot"
 SCHEMA_SERVICE_DATASET_SNAPSHOT = {}
+
+SERVICE_SNAPSHOTTASK_RUN = "snapshottask_run"
+SCHEMA_SERVICE_SNAPSHOTTASK_RUN = {}
+
+# JSON-RPC methods for on-demand "run" triggers, shared by the run buttons
+# (button_types.py) and the *_run sensor actions (sensor.py) so the method name
+# is defined once.
+API_CLOUDSYNC_SYNC = "cloudsync.sync"
+API_RSYNCTASK_RUN = "rsynctask.run"
+API_REPLICATION_RUN = "replication.run"
+API_SNAPSHOTTASK_RUN = "pool.snapshottask.run"
 
 SERVICE_SYSTEM_REBOOT = "system_reboot"
 SCHEMA_SERVICE_SYSTEM_REBOOT = {}

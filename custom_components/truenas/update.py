@@ -171,4 +171,4 @@ class TrueNASAppUpdate(TrueNASEntity, UpdateEntity):
     @property
     def title(self) -> str | None:
         """Return the title of the entity."""
-        return self._data["name"]
+        return self._data.get("name")

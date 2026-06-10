@@ -14,7 +14,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
 
-from .const import CONF_DATA_UNIT, DEFAULT_DATA_UNIT
+from .const import (
+    API_CLOUDSYNC_SYNC,
+    API_REPLICATION_RUN,
+    API_RSYNCTASK_RUN,
+    API_SNAPSHOTTASK_RUN,
+    CONF_DATA_UNIT,
+    DEFAULT_DATA_UNIT,
+)
 from .coordinator import TrueNASCoordinator
 from .entity import TrueNASEntity, async_add_entities
 from .helper import scaled_data_unit
@@ -42,6 +49,7 @@ async def async_setup_entry(
         "TrueNASDatasetSensor": TrueNASDatasetSensor,
         "TrueNASRsyncSensor": TrueNASRsyncSensor,
         "TrueNASReplicationSensor": TrueNASReplicationSensor,
+        "TrueNASSnapshotTaskSensor": TrueNASSnapshotTaskSensor,
     }
     await async_add_entities(hass, config_entry, dispatcher)
 
@@ -85,8 +93,12 @@ class TrueNASSensor(TrueNASEntity, SensorEntity):
 
     @property
     def native_value(self) -> StateType | date | datetime | Decimal:
-        """Return the value reported by the sensor."""
-        return self._data[self.entity_description.data_attribute]
+        """Return the value reported by the sensor.
+
+        Uses .get() so a transient API failure that empties the coordinator data
+        degrades the state to unknown instead of raising a KeyError mid-update.
+        """
+        return self._data.get(self.entity_description.data_attribute)
 
     @property
     def native_unit_of_measurement(self) -> str | None:
@@ -172,12 +184,9 @@ class TrueNASRsyncSensor(TrueNASSensor):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "rsynctask.run",
-            [self._data["id"]],
+        await self.coordinator.async_run_task(
+            API_RSYNCTASK_RUN, self._data["id"], "rsynctask"
         )
-        await self.coordinator.async_request_refresh()
 
 
 # ---------------------------
@@ -196,12 +205,30 @@ class TrueNASReplicationSensor(TrueNASSensor):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "replication.run",
-            [self._data["id"]],
+        await self.coordinator.async_run_task(
+            API_REPLICATION_RUN, self._data["id"], "replication"
         )
-        await self.coordinator.async_request_refresh()
+
+
+# ---------------------------
+#   TrueNASSnapshotTaskSensor
+# ---------------------------
+class TrueNASSnapshotTaskSensor(TrueNASSensor):
+    """Define a TrueNAS periodic snapshot task sensor."""
+
+    async def start(self) -> None:
+        """Run a periodic snapshot task on demand."""
+        if self._data.get("state") == "RUNNING":
+            _LOGGER.warning(
+                "Snapshot task %s (%s) is already running",
+                self._data.get("dataset"),
+                self._data.get("id"),
+            )
+            return
+
+        await self.coordinator.async_run_task(
+            API_SNAPSHOTTASK_RUN, self._data["id"], "snapshottask"
+        )
 
 
 # ---------------------------
@@ -236,10 +263,8 @@ class TrueNASCloudsyncSensor(TrueNASSensor):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "cloudsync.sync",
-            [self._data["id"]],
+        await self.coordinator.async_run_task(
+            API_CLOUDSYNC_SYNC, self._data["id"], "cloudsync"
         )
 
     async def stop(self) -> None:

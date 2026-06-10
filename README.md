@@ -112,6 +112,11 @@ Replication tasks can be started on demand through the `replication_run` action.
 
 > **Replication** is a monitored group (enabled by default). You can disable it under
 > *Settings → Devices & Services → TrueNAS → Configure → Monitored groups*.
+>
+> Note: triggering a run on demand (the **Run** button or `replication_run`) shows
+> `RUNNING` immediately and re-syncs to the real state on the next poll. A **scheduled**
+> run that finishes between two polls may only be sampled in its final state (e.g.
+> `FINISHED`) — the persistent state always matches the TrueNAS WebUI.
 
 ## Rsync Tasks
 Monitor status and attributes for each TrueNAS rsync task.
@@ -122,15 +127,25 @@ Rsync tasks can be started on demand through the `rsync_run` action.
 
 ## Snapshot Tasks
 Monitor status and attributes for each TrueNAS snapshot task.
+Periodic snapshot tasks can be started on demand through the `snapshottask_run` action
+(target the snapshot task sensor).
 
 ![Snapshot Tasks](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/snapshottask.png)
 
 > **Snapshot Tasks** is a monitored group (enabled by default). You can disable it under
 > *Settings → Devices & Services → TrueNAS → Configure → Monitored groups*.
+>
+> Note: triggering a run on demand (the **Run** button or `snapshottask_run`) shows
+> `RUNNING` immediately and re-syncs to the real state on the next poll. A **scheduled**
+> run that finishes between two polls may only be sampled in its final `state` (e.g.
+> `FINISHED`); the task's `datetime` / last snapshot is the reliable run evidence —
+> TrueNAS itself shows no live "running" feedback for these tasks either.
 
 ## Dataset Snapshot
-Create a Dataset Snapshot using a Home Assistant action.
-Snapshot name will be automatically generated using datetime iso format with microseconds and "custom" prefix. 
+Create an **on-demand** ZFS snapshot of a dataset through the `dataset_snapshot` action
+(target a dataset sensor) — taken immediately, independent of any periodic snapshot task.
+The snapshot name is generated automatically in ISO datetime format with microseconds and
+a `custom-` prefix.
 
 ![Snapshot UI](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/snapshot_ui.png)
 ![Snapshot YAML](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/snapshot_yaml.png)
@@ -166,6 +181,34 @@ Power control is available through actions.
 Target system uptime sensor.
 
 ![image](https://user-images.githubusercontent.com/36953052/221521930-f8f789e6-deec-4cc2-b11e-740caa056e44.png)
+
+## Actions
+All actions are prefixed with `truenas.` and **target a specific entity** (the one whose
+TrueNAS object they act on). Each action has a name and description in
+*Developer Tools → Actions*.
+
+| Action | Target entity | What it does |
+| --- | --- | --- |
+| `vm_start` · `vm_stop` · `vm_restart` | VM binary sensor | Start / stop / restart a virtual machine (`vm_start` has an optional `overcommit` field) |
+| `container_start` · `container_stop` · `container_restart` | Container binary sensor | Start / stop / restart a container (Incus instance) |
+| `app_start` · `app_stop` | App binary sensor | Start / stop an app |
+| `service_start` · `service_stop` · `service_restart` · `service_reload` | Service binary sensor | Control a TrueNAS service |
+| `cloudsync_run` · `cloudsync_abort` | Cloudsync sensor | Start / abort a cloudsync job |
+| `replication_run` | Replication sensor | Start a replication task on demand |
+| `rsync_run` | Rsync task sensor | Start an rsync task on demand |
+| `snapshottask_run` | Snapshot task sensor | Run a periodic snapshot task now |
+| `dataset_snapshot` | Dataset sensor | Create an immediate `custom-<timestamp>` snapshot of a dataset |
+| `system_reboot` · `system_shutdown` | Uptime sensor | Reboot / shut down the TrueNAS system |
+
+Example:
+```yaml
+action: truenas.dataset_snapshot
+target:
+  entity_id: sensor.truenas_<host>_<dataset>
+```
+
+> **Run buttons:** snapshot, rsync, replication and cloudsync tasks also expose a one-tap
+> **Run** button on their device page, so you can trigger them without calling an action.
 
 # Install integration from Custom Repository
 1. Open HACS, click the 3-dot menu in the upper right corner and select **Custom repositories**.
