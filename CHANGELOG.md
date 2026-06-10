@@ -14,6 +14,37 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 
 ---
 
+## [1.9.0] — Run buttons, action descriptions & robustness
+
+### Added
+- **Run buttons (new `button` platform):** one-tap **Run** buttons for snapshot, rsync,
+  replication and cloudsync tasks appear on each task's device page — no need to call an
+  action from Developer Tools or build a button card.
+- **`snapshottask_run` action:** run a periodic snapshot task on demand (target the
+  snapshot task sensor), mirroring `rsync_run` / `replication_run`.
+- **Instant run feedback:** triggering a snapshot / rsync / replication / cloudsync run
+  (via button or action) now optimistically sets the sensor to `RUNNING` right away, so a
+  fast task that finishes between two polls still shows the trigger worked; the next regular
+  poll re-syncs to the real TrueNAS state.
+
+### Fixed
+- **Action descriptions now show up in Home Assistant:** the descriptions lived in
+  `actions.yaml`, which Home Assistant does not read — it reads `services.yaml` (which was
+  empty since the 1.4.1 rename). All action names, descriptions and fields are now defined in
+  `services.yaml`, so they appear in *Developer Tools → Actions*. Dead `jail_*` entries were
+  dropped and `dataset_snapshot` got a clearer display name ("Create dataset snapshot").
+- **Clear error for unsupported actions:** targeting an action at an entity type that does not
+  support it (e.g. `service_restart` on an app) now raises a descriptive error instead of a
+  bare "Unknown error".
+- **No more `KeyError` crashes on a transient API hiccup:** when a query times out / the
+  WebSocket changes mid-query and a data group is briefly emptied, entities now degrade to an
+  unknown state instead of raising `KeyError` while writing their state.
+
+### Documentation
+- New **Actions** reference table in the README. Added notes that a fast replication/snapshot
+  run may finish within the poll interval and therefore not surface the transient `RUNNING`
+  state (the persistent state always matches the WebUI).
+
 ## [1.8.1] — Multi-instance unique-ID fix
 
 ### Fixed
@@ -175,6 +206,7 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 - Handle JSON-RPC parsing errors to prevent crashes on unexpected API formats.
 - Modern type hints and `.get()` fallbacks to avoid `KeyError` crashes.
 
+[1.9.0]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.9.0
 [1.8.1]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.8.1
 [1.8.0]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.8.0
 [1.7.0]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.7.0

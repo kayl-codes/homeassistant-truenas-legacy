@@ -48,15 +48,19 @@ class TrueNASBinarySensor(TrueNASEntity, BinarySensorEntity):
     """Define an TrueNAS Binary Sensor."""
 
     @property
-    def is_on(self) -> bool:
-        """Return true if device is on."""
-        return self._data[self.entity_description.data_is_on]
+    def is_on(self) -> bool | None:
+        """Return true if device is on.
+
+        Uses .get() so a transient API failure that empties the coordinator data
+        degrades the state to unknown instead of raising a KeyError mid-update.
+        """
+        return self._data.get(self.entity_description.data_is_on)
 
     @property
     def icon(self) -> str | None:
         """Return the icon."""
         if self.entity_description.icon_enabled:
-            if self._data[self.entity_description.data_is_on]:
+            if self._data.get(self.entity_description.data_is_on):
                 return self.entity_description.icon_enabled
             else:
                 return self.entity_description.icon_disabled

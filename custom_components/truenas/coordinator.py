@@ -344,6 +344,23 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return group in monitored
 
     # ---------------------------
+    #   set_optimistic_running
+    # ---------------------------
+    def set_optimistic_running(self, data_path: str, object_id: Any) -> None:
+        """Optimistically mark a task's state as RUNNING for instant UI feedback.
+
+        Run actions/buttons often complete a task faster than the poll interval,
+        so the transient RUNNING state is gone before the next poll samples it and
+        the sensor stays on its previous value with no sign the trigger worked.
+        Setting RUNNING in-memory and notifying listeners gives that feedback; the
+        next regular poll re-syncs the state to whatever TrueNAS reports.
+        """
+        group = self.ds.get(data_path)
+        if isinstance(group, dict) and isinstance(group.get(object_id), dict):
+            group[object_id]["state"] = "RUNNING"
+            self.async_update_listeners()
+
+    # ---------------------------
     #   _async_update_data
     # ---------------------------
     async def _async_update_data(self):

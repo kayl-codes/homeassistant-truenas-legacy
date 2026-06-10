@@ -42,6 +42,7 @@ async def async_setup_entry(
         "TrueNASDatasetSensor": TrueNASDatasetSensor,
         "TrueNASRsyncSensor": TrueNASRsyncSensor,
         "TrueNASReplicationSensor": TrueNASReplicationSensor,
+        "TrueNASSnapshotTaskSensor": TrueNASSnapshotTaskSensor,
     }
     await async_add_entities(hass, config_entry, dispatcher)
 
@@ -85,8 +86,12 @@ class TrueNASSensor(TrueNASEntity, SensorEntity):
 
     @property
     def native_value(self) -> StateType | date | datetime | Decimal:
-        """Return the value reported by the sensor."""
-        return self._data[self.entity_description.data_attribute]
+        """Return the value reported by the sensor.
+
+        Uses .get() so a transient API failure that empties the coordinator data
+        degrades the state to unknown instead of raising a KeyError mid-update.
+        """
+        return self._data.get(self.entity_description.data_attribute)
 
     @property
     def native_unit_of_measurement(self) -> str | None:
@@ -177,7 +182,7 @@ class TrueNASRsyncSensor(TrueNASSensor):
             "rsynctask.run",
             [self._data["id"]],
         )
-        await self.coordinator.async_request_refresh()
+        self.coordinator.set_optimistic_running("rsynctask", self._data["id"])
 
 
 # ---------------------------
@@ -201,7 +206,31 @@ class TrueNASReplicationSensor(TrueNASSensor):
             "replication.run",
             [self._data["id"]],
         )
-        await self.coordinator.async_request_refresh()
+        self.coordinator.set_optimistic_running("replication", self._data["id"])
+
+
+# ---------------------------
+#   TrueNASSnapshotTaskSensor
+# ---------------------------
+class TrueNASSnapshotTaskSensor(TrueNASSensor):
+    """Define a TrueNAS periodic snapshot task sensor."""
+
+    async def start(self) -> None:
+        """Run a periodic snapshot task on demand."""
+        if self._data.get("state") == "RUNNING":
+            _LOGGER.warning(
+                "Snapshot task %s (%s) is already running",
+                self._data.get("dataset"),
+                self._data.get("id"),
+            )
+            return
+
+        await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "pool.snapshottask.run",
+            [self._data["id"]],
+        )
+        self.coordinator.set_optimistic_running("snapshottask", self._data["id"])
 
 
 # ---------------------------
@@ -241,6 +270,7 @@ class TrueNASCloudsyncSensor(TrueNASSensor):
             "cloudsync.sync",
             [self._data["id"]],
         )
+        self.coordinator.set_optimistic_running("cloudsync", self._data["id"])
 
     async def stop(self) -> None:
         """Abort cloudsync job."""

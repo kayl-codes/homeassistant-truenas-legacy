@@ -30,6 +30,7 @@ from .const import (
     SCHEMA_SERVICE_DATASET_SNAPSHOT,
     SCHEMA_SERVICE_REPLICATION_RUN,
     SCHEMA_SERVICE_RSYNC_RUN,
+    SCHEMA_SERVICE_SNAPSHOTTASK_RUN,
     SCHEMA_SERVICE_SYSTEM_REBOOT,
     SCHEMA_SERVICE_SYSTEM_SHUTDOWN,
     SERVICE_CLOUDSYNC_ABORT,
@@ -37,6 +38,7 @@ from .const import (
     SERVICE_DATASET_SNAPSHOT,
     SERVICE_REPLICATION_RUN,
     SERVICE_RSYNC_RUN,
+    SERVICE_SNAPSHOTTASK_RUN,
     SERVICE_SYSTEM_REBOOT,
     SERVICE_SYSTEM_SHUTDOWN,
 )
@@ -593,6 +595,7 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
         data_uid=None,
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_SNAPSHOTTASK,
+        func="TrueNASSnapshotTaskSensor",
     ),
     TrueNASSensorEntityDescription(
         key="traffic_rx",
@@ -769,6 +772,7 @@ SENSOR_SERVICES: tuple[SensorService, ...] = (
     SensorService(SERVICE_CLOUDSYNC_ABORT, SCHEMA_SERVICE_CLOUDSYNC_ABORT, "stop"),
     SensorService(SERVICE_RSYNC_RUN, SCHEMA_SERVICE_RSYNC_RUN, "start"),
     SensorService(SERVICE_REPLICATION_RUN, SCHEMA_SERVICE_REPLICATION_RUN, "start"),
+    SensorService(SERVICE_SNAPSHOTTASK_RUN, SCHEMA_SERVICE_SNAPSHOTTASK_RUN, "start"),
     SensorService(
         SERVICE_DATASET_SNAPSHOT, SCHEMA_SERVICE_DATASET_SNAPSHOT, "snapshot"
     ),

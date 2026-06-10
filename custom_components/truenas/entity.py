@@ -10,6 +10,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION, CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_platform as ep
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, Entity
@@ -333,22 +334,35 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
 
         return attributes
 
+    def _raise_unsupported(self, action: str) -> None:
+        """Raise a clean, user-facing error for an unsupported action.
+
+        Entity services are registered for a whole platform, so an action can be
+        targeted at an entity type that does not implement it (e.g. service_restart
+        on an app). Raising ServiceValidationError surfaces a clear message instead
+        of an "Unknown error" from a bare NotImplementedError.
+        """
+        raise ServiceValidationError(
+            f"The '{action}' action is not supported by this TrueNAS entity "
+            f"({self.entity_id})"
+        )
+
     async def start(self):
         """Run function."""
-        raise NotImplementedError()
+        self._raise_unsupported("start")
 
     async def stop(self):
         """Stop function."""
-        raise NotImplementedError()
+        self._raise_unsupported("stop")
 
     async def restart(self):
         """Restart function."""
-        raise NotImplementedError()
+        self._raise_unsupported("restart")
 
     async def reload(self):
         """Reload function."""
-        raise NotImplementedError()
+        self._raise_unsupported("reload")
 
     async def snapshot(self):
         """Snapshot function."""
-        raise NotImplementedError()
+        self._raise_unsupported("snapshot")
