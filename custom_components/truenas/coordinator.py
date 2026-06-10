@@ -33,6 +33,7 @@ from .const import (
     MONITOR_GROUP_CLOUDSYNC,
     MONITOR_GROUP_CONTAINERS,
     MONITOR_GROUP_DATASETS,
+    MONITOR_GROUP_DIRECTORY_SERVICES,
     MONITOR_GROUP_REPLICATION,
     MONITOR_GROUP_RSYNC,
     MONITOR_GROUP_SNAPSHOTS,
@@ -289,6 +290,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "service": {},
             "vm": {},
             "container": {},
+            "directoryservices": {},
             "cloudsync": {},
             "replication": {},
             "rsynctask": {},
@@ -360,6 +362,7 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.get_dataset,
             self.get_vm,
             self.get_container,
+            self.get_directoryservices,
             self.get_cloudsync,
             self.get_replication,
             self.get_rsync,
@@ -1558,6 +1561,83 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.ds["container"][uid]["memory"] = round(memory / 1048576)
             self.ds["container"][uid]["running"] = vals.get("status") == "RUNNING"
             self.ds["container"][uid]["ip_address"] = _first_ipv4(vals.get("aliases"))
+
+    # ---------------------------
+    #   get_directoryservices
+    # ---------------------------
+    def get_directoryservices(self) -> None:
+        """Get Directory Services (AD/LDAP/IPA) status from TrueNAS.
+
+        Uses the unified ``directoryservices`` API (TrueNAS 25.04+): ``config``
+        carries the service type / domain / options, ``status`` carries the live
+        state (HEALTHY/FAULTED/…). The entity is only surfaced when a directory
+        service is actually configured and enabled, so non-AD systems get no
+        (perpetually disconnected) entity. Keyed by the config id (a single row).
+        """
+        if not self._is_group_monitored(MONITOR_GROUP_DIRECTORY_SERVICES):
+            self.ds["directoryservices"] = {}
+            return
+
+        config = self.api.query("directoryservices.config")
+        if (
+            not isinstance(config, dict)
+            or not config.get("service_type")
+            or not config.get("enable")
+        ):
+            self.ds["directoryservices"] = {}
+            return
+
+        status = self.api.query("directoryservices.status")
+        status = status if isinstance(status, dict) else {}
+
+        # Merge config + status into one source row so parse_api can pull both.
+        merged = dict(config)
+        merged["status"] = status.get("status", "unknown")
+        merged["status_msg"] = status.get("status_msg")
+
+        self.ds["directoryservices"] = parse_api(
+            data=self.ds["directoryservices"],
+            source=[merged],
+            key="id",
+            vals=[
+                {"name": "id", "default": 1},
+                {"name": "type", "source": "service_type", "default": "unknown"},
+                {"name": "enable", "type": "bool", "default": False},
+                {
+                    "name": "account_cache",
+                    "source": "enable_account_cache",
+                    "type": "bool",
+                    "default": False,
+                },
+                {
+                    "name": "dns_updates",
+                    "source": "enable_dns_updates",
+                    "type": "bool",
+                    "default": False,
+                },
+                {"name": "kerberos_realm", "default": "unknown"},
+                {
+                    "name": "domain",
+                    "source": "configuration/domain",
+                    "default": "unknown",
+                },
+                {
+                    "name": "site",
+                    "source": "configuration/site",
+                    "default": "unknown",
+                },
+                {"name": "status", "default": "unknown"},
+                {"name": "status_msg", "default": None},
+            ],
+            ensure_vals=[
+                {"name": "healthy", "type": "bool", "default": False},
+            ],
+        )
+
+        for uid, vals in self.ds["directoryservices"].items():
+            self.ds["directoryservices"][uid]["healthy"] = (
+                vals.get("status") == "HEALTHY"
+            )
 
     # ---------------------------
     #   get_alerts

@@ -59,6 +59,7 @@ from .const import (
     MONITOR_GROUP_CLOUDSYNC,
     MONITOR_GROUP_CONTAINERS,
     MONITOR_GROUP_DATASETS,
+    MONITOR_GROUP_DIRECTORY_SERVICES,
     MONITOR_GROUP_REPLICATION,
     MONITOR_GROUP_RSYNC,
     MONITOR_GROUP_SNAPSHOTS,
@@ -148,6 +149,9 @@ def _options_schema(options: Mapping[str, Any]) -> vol.Schema:
             value=MONITOR_GROUP_SNAPSHOTS, label="Snapshot Tasks"
         ),
         selector.SelectOptionDict(value=MONITOR_GROUP_DATASETS, label="Datasets"),
+        selector.SelectOptionDict(
+            value=MONITOR_GROUP_DIRECTORY_SERVICES, label="Directory Services"
+        ),
     ]
 
     return vol.Schema(
