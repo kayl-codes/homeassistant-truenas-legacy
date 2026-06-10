@@ -17,7 +17,7 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 ## [1.8.1] — Multi-instance unique-ID fix
 
 ### Fixed
-- **Unique-ID error spam with multiple TrueNAS instances (#34):** With more than one
+- **Unique-ID error spam with multiple TrueNAS instances (#33):** With more than one
   TrueNAS config entry, the global entity-discovery dispatcher signal made every
   instance's platform also try to create the *other* instance's entities, flooding the
   log with `Platform truenas does not generate unique IDs … already exists` (endlessly,

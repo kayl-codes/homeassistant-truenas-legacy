@@ -155,16 +155,28 @@ async def async_add_entities(
         )
 
     add_lock = Lock()
-    this_coordinator = hass.data[DOMAIN][config_entry.entry_id]
 
-    async def async_update_controller(coordinator):
+    # The coordinator for this config entry. __init__ stores it here before the
+    # platforms are forwarded, so it is always present; guard explicitly so a
+    # future change to that contract fails loudly (logged) instead of with a bare
+    # KeyError deep inside platform setup.
+    this_coordinator = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+    if this_coordinator is None:
+        _LOGGER.error(
+            "No TrueNAS coordinator found for entry %s; skipping entity setup",
+            config_entry.entry_id,
+        )
+        return
+
+    async def async_update_controller(coordinator: TrueNASCoordinator) -> None:
         """Add entities for newly-appeared objects on each coordinator refresh."""
-        # SIGNAL_UPDATE_SENSORS is a global dispatcher signal, so with more than
-        # one TrueNAS config entry every platform receives every entry's refresh.
-        # Ignore refreshes from other entries — otherwise this platform would
-        # build the *other* instance's entities and try to add them here, causing
-        # "Platform truenas does not generate unique IDs … already exists" spam on
-        # multi-instance setups (#34).
+        # SIGNAL_UPDATE_SENSORS is a global dispatcher signal that __init__ always
+        # fires with the *same* coordinator instance object (one per config entry),
+        # so the identity check below is safe. With more than one TrueNAS config
+        # entry every platform receives every entry's refresh, so ignore refreshes
+        # from other entries — otherwise this platform would build the *other*
+        # instance's entities and try to add them here, causing "Platform truenas
+        # does not generate unique IDs … already exists" spam (#33).
         if coordinator is not this_coordinator:
             return
 
