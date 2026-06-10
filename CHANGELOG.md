@@ -14,6 +14,17 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 
 ---
 
+## [1.8.1] — Multi-instance unique-ID fix
+
+### Fixed
+- **Unique-ID error spam with multiple TrueNAS instances (#33):** With more than one
+  TrueNAS config entry, the global entity-discovery dispatcher signal made every
+  instance's platform also try to create the *other* instance's entities, flooding the
+  log with `Platform truenas does not generate unique IDs … already exists` (endlessly,
+  since the rejected entities never enter the platform and are retried each refresh).
+  Each platform now ignores refreshes coming from other config entries.
+  Single-instance setups were unaffected.
+
 ## [1.8.0] — Directory Services
 
 ### Added
@@ -164,6 +175,7 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 - Handle JSON-RPC parsing errors to prevent crashes on unexpected API formats.
 - Modern type hints and `.get()` fallbacks to avoid `KeyError` crashes.
 
+[1.8.1]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.8.1
 [1.8.0]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.8.0
 [1.7.0]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.7.0
 [1.6.1]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.6.1
