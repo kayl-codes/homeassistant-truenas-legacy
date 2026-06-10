@@ -122,6 +122,7 @@ MONITOR_GROUP_REPLICATION = "replication"
 MONITOR_GROUP_RSYNC = "rsync"
 MONITOR_GROUP_SNAPSHOTS = "snapshots"
 MONITOR_GROUP_DATASETS = "datasets"
+MONITOR_GROUP_DIRECTORY_SERVICES = "directory_services"
 DEFAULT_MONITORED_GROUPS = [
     MONITOR_GROUP_UPS,
     MONITOR_GROUP_VMS,
@@ -131,6 +132,7 @@ DEFAULT_MONITORED_GROUPS = [
     MONITOR_GROUP_RSYNC,
     MONITOR_GROUP_SNAPSHOTS,
     MONITOR_GROUP_DATASETS,
+    MONITOR_GROUP_DIRECTORY_SERVICES,
 ]
 
 # Maps each monitored-group option key to the coordinator ds data_path(s) it owns.
@@ -144,6 +146,7 @@ GROUP_DATA_PATHS: dict[str, set[str]] = {
     MONITOR_GROUP_RSYNC: {"rsynctask"},
     MONITOR_GROUP_SNAPSHOTS: {"snapshottask"},
     MONITOR_GROUP_DATASETS: {"dataset"},
+    MONITOR_GROUP_DIRECTORY_SERVICES: {"directoryservices"},
 }
 
 SERVICE_SERVICE_START = "service_start"

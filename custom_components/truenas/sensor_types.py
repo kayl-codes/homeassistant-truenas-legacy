@@ -178,6 +178,16 @@ DEVICE_ATTRIBUTES_ALERTS = (
     "info",
 )
 
+DEVICE_ATTRIBUTES_DIRECTORYSERVICE = (
+    "type",
+    "status_msg",
+    "domain",
+    "kerberos_realm",
+    "account_cache",
+    "dns_updates",
+    "site",
+)
+
 
 @dataclass
 class TrueNASSensorEntityDescription(SensorEntityDescription):
@@ -726,6 +736,22 @@ SENSOR_TYPES: tuple[TrueNASSensorEntityDescription, ...] = (
         data_name=None,
         data_uid=None,
         data_reference=None,
+    ),
+    TrueNASSensorEntityDescription(
+        key="directoryservices",
+        name="Status",
+        icon="mdi:domain",
+        native_unit_of_measurement=None,
+        device_class=None,
+        state_class=None,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        ha_group="Directory Services",
+        data_path="directoryservices",
+        data_attribute="status",
+        data_name="domain",
+        data_uid=None,
+        data_reference="id",
+        data_attributes_list=DEVICE_ATTRIBUTES_DIRECTORYSERVICE,
     ),
 )
 

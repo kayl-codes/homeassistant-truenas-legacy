@@ -95,6 +95,17 @@ DEVICE_ATTRIBUTES_NETWORK = (
     "link_address",
 )
 
+DEVICE_ATTRIBUTES_DIRECTORYSERVICE = (
+    "type",
+    "status",
+    "status_msg",
+    "domain",
+    "kerberos_realm",
+    "account_cache",
+    "dns_updates",
+    "site",
+)
+
 
 @dataclass
 class TrueNASBinarySensorEntityDescription(BinarySensorEntityDescription):
@@ -219,6 +230,21 @@ SENSOR_TYPES: tuple[TrueNASBinarySensorEntityDescription, ...] = (
         data_uid=None,
         data_reference="id",
         data_attributes_list=DEVICE_ATTRIBUTES_NETWORK,
+    ),
+    TrueNASBinarySensorEntityDescription(
+        key="directoryservices",
+        name="",
+        icon_enabled="mdi:account-group",
+        icon_disabled="mdi:account-group-outline",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        ha_group="Directory Services",
+        data_path="directoryservices",
+        data_is_on="healthy",
+        data_name="domain",
+        data_uid=None,
+        data_reference="id",
+        data_attributes_list=DEVICE_ATTRIBUTES_DIRECTORYSERVICE,
     ),
 )
 
