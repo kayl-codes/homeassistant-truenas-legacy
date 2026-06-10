@@ -14,7 +14,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
 
-from .const import CONF_DATA_UNIT, DEFAULT_DATA_UNIT
+from .const import (
+    API_CLOUDSYNC_SYNC,
+    API_REPLICATION_RUN,
+    API_RSYNCTASK_RUN,
+    API_SNAPSHOTTASK_RUN,
+    CONF_DATA_UNIT,
+    DEFAULT_DATA_UNIT,
+)
 from .coordinator import TrueNASCoordinator
 from .entity import TrueNASEntity, async_add_entities
 from .helper import scaled_data_unit
@@ -177,12 +184,9 @@ class TrueNASRsyncSensor(TrueNASSensor):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "rsynctask.run",
-            [self._data["id"]],
+        await self.coordinator.async_run_task(
+            API_RSYNCTASK_RUN, self._data["id"], "rsynctask"
         )
-        self.coordinator.set_optimistic_running("rsynctask", self._data["id"])
 
 
 # ---------------------------
@@ -201,12 +205,9 @@ class TrueNASReplicationSensor(TrueNASSensor):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "replication.run",
-            [self._data["id"]],
+        await self.coordinator.async_run_task(
+            API_REPLICATION_RUN, self._data["id"], "replication"
         )
-        self.coordinator.set_optimistic_running("replication", self._data["id"])
 
 
 # ---------------------------
@@ -225,12 +226,9 @@ class TrueNASSnapshotTaskSensor(TrueNASSensor):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "pool.snapshottask.run",
-            [self._data["id"]],
+        await self.coordinator.async_run_task(
+            API_SNAPSHOTTASK_RUN, self._data["id"], "snapshottask"
         )
-        self.coordinator.set_optimistic_running("snapshottask", self._data["id"])
 
 
 # ---------------------------
@@ -265,12 +263,9 @@ class TrueNASCloudsyncSensor(TrueNASSensor):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "cloudsync.sync",
-            [self._data["id"]],
+        await self.coordinator.async_run_task(
+            API_CLOUDSYNC_SYNC, self._data["id"], "cloudsync"
         )
-        self.coordinator.set_optimistic_running("cloudsync", self._data["id"])
 
     async def stop(self) -> None:
         """Abort cloudsync job."""

@@ -7,6 +7,13 @@ from typing import Any, NamedTuple
 
 from homeassistant.components.button import ButtonEntityDescription
 
+from .const import (
+    API_CLOUDSYNC_SYNC,
+    API_REPLICATION_RUN,
+    API_RSYNCTASK_RUN,
+    API_SNAPSHOTTASK_RUN,
+)
+
 # Run buttons mirror the on-demand "*_run" actions, but as one-tap controls on the
 # task's device page. Each carries the JSON-RPC method to call with the object id.
 
@@ -27,12 +34,15 @@ class TrueNASButtonEntityDescription(ButtonEntityDescription):
     func: str = "TrueNASButton"
 
 
+ICON_RUN = "mdi:play-circle-outline"
+
+
 SENSOR_TYPES: tuple[TrueNASButtonEntityDescription, ...] = (
     TrueNASButtonEntityDescription(
         key="snapshottask_run",
         name="Run",
-        icon="mdi:play-circle-outline",
-        api_method="pool.snapshottask.run",
+        icon=ICON_RUN,
+        api_method=API_SNAPSHOTTASK_RUN,
         ha_group="Snapshot tasks",
         data_path="snapshottask",
         data_name="dataset",
@@ -42,8 +52,8 @@ SENSOR_TYPES: tuple[TrueNASButtonEntityDescription, ...] = (
     TrueNASButtonEntityDescription(
         key="rsync_run",
         name="Run",
-        icon="mdi:play-circle-outline",
-        api_method="rsynctask.run",
+        icon=ICON_RUN,
+        api_method=API_RSYNCTASK_RUN,
         ha_group="Rsync tasks",
         data_path="rsynctask",
         data_name="desc",
@@ -53,8 +63,8 @@ SENSOR_TYPES: tuple[TrueNASButtonEntityDescription, ...] = (
     TrueNASButtonEntityDescription(
         key="replication_run",
         name="Run",
-        icon="mdi:play-circle-outline",
-        api_method="replication.run",
+        icon=ICON_RUN,
+        api_method=API_REPLICATION_RUN,
         ha_group="Replication",
         data_path="replication",
         data_name="name",
@@ -64,8 +74,8 @@ SENSOR_TYPES: tuple[TrueNASButtonEntityDescription, ...] = (
     TrueNASButtonEntityDescription(
         key="cloudsync_run",
         name="Run",
-        icon="mdi:play-circle-outline",
-        api_method="cloudsync.sync",
+        icon=ICON_RUN,
+        api_method=API_CLOUDSYNC_SYNC,
         ha_group="Cloudsync",
         data_path="cloudsync",
         data_name="description",

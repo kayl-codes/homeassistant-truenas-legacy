@@ -50,13 +50,7 @@ class TrueNASButton(TrueNASEntity, ButtonEntity):
             )
             return
 
-        await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            method,
-            [object_id],
-        )
-        # Show RUNNING immediately so the press has visible feedback; the next
-        # regular poll re-syncs to the real TrueNAS state.
-        self.coordinator.set_optimistic_running(
-            self.entity_description.data_path, object_id
+        # Trigger the run and show RUNNING immediately (re-synced on next poll).
+        await self.coordinator.async_run_task(
+            method, object_id, self.entity_description.data_path
         )

@@ -359,6 +359,24 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(group, dict) and isinstance(group.get(object_id), dict):
             group[object_id]["state"] = "RUNNING"
             self.async_update_listeners()
+        else:
+            _LOGGER.debug(
+                "set_optimistic_running: no '%s' object with id %r to mark RUNNING",
+                data_path,
+                object_id,
+            )
+
+    # ---------------------------
+    #   async_run_task
+    # ---------------------------
+    async def async_run_task(self, method: str, object_id: Any, data_path: str) -> None:
+        """Trigger a task's run method, then optimistically mark it RUNNING.
+
+        Shared by the run buttons (button.py) and the *_run sensor actions
+        (sensor.py) so the trigger + optimistic-state logic lives in one place.
+        """
+        await self.hass.async_add_executor_job(self.api.query, method, [object_id])
+        self.set_optimistic_running(data_path, object_id)
 
     # ---------------------------
     #   _async_update_data
