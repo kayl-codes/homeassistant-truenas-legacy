@@ -59,5 +59,29 @@
                 }
             }
         }
+    },
+    "issues": {
+        "statistics_orphaned": {
+            "title": "Orphaned TrueNAS statistics",
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "title": "Clean up orphaned TrueNAS statistics",
+                        "description": "{count} long-term statistic(s) belong to TrueNAS entities that no longer exist (they show as \"no state available\" in Developer Tools > Statistics). Choose what to do.",
+                        "menu_options": {
+                            "fix": "Delete the orphaned statistics",
+                            "ignore": "Ignore (don't notify again)"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "entity": {
+        "button": {
+            "statistics_cleanup": {
+                "name": "Clean up orphaned statistics"
+            }
+        }
     }
 }
