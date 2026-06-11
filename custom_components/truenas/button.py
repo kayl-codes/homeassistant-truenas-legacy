@@ -19,7 +19,12 @@ from .button_types import (  # noqa: F401
 )
 from .const import BUTTON_STATISTICS_CLEANUP, DOMAIN
 from .coordinator import TrueNASCoordinator
-from .entity import TrueNASEntity, async_add_entities, format_unique_id
+from .entity import (
+    TrueNASEntity,
+    async_add_entities,
+    format_device_identifier,
+    format_unique_id,
+)
 
 _LOGGER = getLogger(__name__)
 
@@ -91,7 +96,7 @@ class TrueNASStatisticsCleanupButton(
         self._attr_unique_id = format_unique_id(inst, BUTTON_STATISTICS_CLEANUP)
         hostname = coordinator.data.get("system_info", {}).get("hostname", inst)
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{inst}_{hostname}")},
+            identifiers={(DOMAIN, format_device_identifier(inst, hostname))},
         )
 
     @property

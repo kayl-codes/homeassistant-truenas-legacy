@@ -1,12 +1,12 @@
 {
     "domain": "truenas",
     "name": "TrueNAS",
+    "after_dependencies": ["recorder"],
     "codeowners": [
         "@kayl-codes"
     ],
     "config_flow": true,
     "dependencies": [],
-    "after_dependencies": ["recorder"],
     "documentation": "https://github.com/kayl-codes/homeassistant-truenas",
     "iot_class": "local_polling",
     "issue_tracker": "https://github.com/kayl-codes/homeassistant-truenas/issues",
