@@ -234,6 +234,10 @@ If you are using development branch for TrueNAS, some features may stop working.
 ![Setup step 2](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/setup_2.png)
 ![Setup step 3](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/setup_3.png)
 
+> **⚠️ Required permissions.** On TrueNAS 25.04+ an API key is [tied to a user account](https://www.truenas.com/docs/scale/toptoolbar/managingapikeys/) and inherits that user's privileges, so the integration can only do what the user's role allows. This integration needs **administrative** access: besides reading system/pool/dataset/app data it also performs control actions (reboot/shutdown, start/stop VMs, apps and services, run tasks), which require write privileges across the API. The key's user therefore needs **TrueNAS Access** enabled with the **Full Admin** role (`FULL_ADMIN` grants unrestricted access to every API method). A key whose user has TrueNAS Access disabled, or only a restricted role, will fail to log in **even though the key itself is valid** (this is the usual cause of a *"Login failed, invalid API key"* error with a brand-new key). If you want to scope the key down instead, the [Role-Based Access Control reference](https://api.truenas.com/v25.10/rbac.html) — in particular its *Predefined Group Roles* table — documents exactly what each role can do. The screenshot below shows a dedicated `HomeAssistant` user with Full Admin access.
+
+![Setup step 4 – required user access](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/setup_4.png)
+
 2. Setup this integration for your TrueNAS device in Home Assistant via `Configuration -> Integrations -> Add -> TrueNAS`.
 You can add this integration several times for different devices.
 
@@ -242,9 +246,18 @@ NOTES:
 
 ![Add Integration](https://raw.githubusercontent.com/kayl-codes/homeassistant-truenas/master/docs/assets/images/ui/setup_integration.png)
 * "Name of the integration" - Friendly name for this router
-* "Host" - Use hostname or IP and if you need port seperated by colon eG: 192.168.100.100:8888
-* "API key" - TrueNAS API key for Home Assistant 
+* "Host" - The TrueNAS hostname or IP address. Best is a bare host such as `192.168.100.100` (a non-standard port may be appended with a colon, e.g. `192.168.100.100:8888`). If you paste a full URL, any scheme (`https://`) and path are stripped automatically.
+* "API key" - TrueNAS API key for Home Assistant (see the required permissions note above)
 * "Data size unit" - Choose how storage sizes are displayed. You can select between **GB** (Gigabytes, base 1000) and **GiB** (Gibibytes, base 1024). This will automatically adjust all dataset, pool, and memory sensors.
+
+### Remote access, reverse proxies & Cloudflare
+
+The integration talks to TrueNAS over its JSON-RPC **WebSocket** API (`wss://<host>/websocket`), which has a few consequences for how you can reach TrueNAS:
+
+* **Use the local IP (or local DNS name) — this works best and is recommended.** Home Assistant and TrueNAS usually sit on the same network, so a local address keeps the traffic entirely local: it does *not* leave to the internet and come back in through a proxy/CDN, which means lower latency, no external dependency and nothing for an auth gateway to intercept. A **VPN** (e.g. WireGuard/Tailscale) achieves the same when HA runs off-site. Of the two, a **plain IP address is the safest choice**, because it removes name resolution from the equation — intermittent DNS/hostname-lookup failures do happen and have been observed in the HA log, and an IP simply cannot hit them.
+* **A plain reverse proxy works** (TLS termination only, no authentication) as long as it forwards the WebSocket upgrade and the `/websocket` path untouched. Use a certificate valid for the hostname and keep **Verify SSL certificate** enabled.
+* **An authentication gateway in front of TrueNAS does _not_ work** — for example **Cloudflare Access / Zero Trust**, Authelia, or HTTP basic-auth. These intercept the WebSocket handshake and redirect it to a login page (HTTP 302) or reject it (401/403) *before it ever reaches TrueNAS*, so the API key never gets a chance to authenticate. A headless integration cannot complete an interactive SSO login, so this is a hard limitation, not a bug. The integration detects this and reports it clearly instead of a generic error.
+  * If you must reach TrueNAS through such a gateway, add a **bypass / service-token policy for the `/websocket` endpoint** so that path skips the interactive login — or simply use the LAN/VPN address instead.
 
 ## Options
 

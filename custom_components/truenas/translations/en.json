@@ -26,7 +26,8 @@
         "error": {
             "name_exists": "Name already exists.",
             "invalid_key": "Login failed, invalid API key.",
-            "invalid_hostname": "Connection failed, invalid hostname.",
+            "proxy_intercepted": "Connection intercepted by a reverse proxy or SSO portal (e.g. Cloudflare Access). Point the integration at the TrueNAS host directly over your LAN/VPN, or exempt the WebSocket endpoint from the proxy's authentication.",
+            "invalid_hostname": "Invalid host. Enter only the hostname or IP address — without \"https://\", path or trailing slash.",
             "connection_refused": "Connection failed, connection refused.",
             "handshake_timeout": "Connection failed, timed out while waiting for handshake response.",
             "api_not_found": "Connection failed, API not found.",

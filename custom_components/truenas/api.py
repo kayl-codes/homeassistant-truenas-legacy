@@ -11,11 +11,20 @@ from threading import RLock
 from typing import Any
 
 from websockets.exceptions import (
-    InvalidStatusCode,
     NegotiationError,
     WebSocketException,
 )
 from websockets.sync.client import ClientConnection, connect
+
+# Current websockets (manifest pins >= 15.0.1) raise ``InvalidStatus`` on an
+# HTTP reject, carrying the code on ``exc.response.status_code`` (read
+# generically below). ``InvalidStatusCode`` is the legacy exception from
+# websockets < 14; import it defensively so status-code extraction keeps
+# working on older installs too.
+try:  # pragma: no cover - depends on installed websockets version
+    from websockets.exceptions import InvalidStatusCode
+except ImportError:  # pragma: no cover - removed in newer websockets
+    InvalidStatusCode = None
 
 from .const import (
     ERR_API_NOT_FOUND,
@@ -27,6 +36,7 @@ from .const import (
     ERR_LOST_LOGIN,
     ERR_LOST_QUERY,
     ERR_MALFORMED_RESULT,
+    ERR_PROXY_INTERCEPTED,
     ERR_TIMEOUT,
     ERR_TLS_NOT_SUPPORTED,
     ERR_UNKNOWN,
@@ -243,12 +253,22 @@ class TrueNASAPI:
         return self._ws
 
     def _extract_status_code(self, exc: BaseException) -> int | None:
-        """Try to extract a numeric status code from a known exception shape.
+        """Try to extract a numeric HTTP status code from a known exception shape.
 
-        Only use attributes that are known to represent HTTP-like status codes
-        to avoid misinterpreting unrelated numeric codes (e.g. errno values).
+        Modern ``websockets`` (>= 14) raises ``InvalidStatus`` carrying the code
+        on ``exc.response.status_code``; older releases raised
+        ``InvalidStatusCode`` with ``exc.status_code``. Only attributes known to
+        represent HTTP status codes are used, to avoid misinterpreting unrelated
+        numeric values (e.g. errno).
         """
-        if isinstance(exc, InvalidStatusCode):
+        # websockets >= 14: InvalidStatus carries a Response object.
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int):
+            return status_code
+
+        # websockets < 14 legacy: InvalidStatusCode exposes status_code directly.
+        if InvalidStatusCode is not None and isinstance(exc, InvalidStatusCode):
             return exc.status_code
 
         if isinstance(exc, WebSocketException):
@@ -290,8 +310,18 @@ class TrueNASAPI:
 
         # 2. Evaluate by HTTP status code
         match self._extract_status_code(exception):
+            case 301 | 302 | 303 | 307 | 308:
+                # A redirect on the WebSocket handshake means something other
+                # than TrueNAS answered: typically a reverse proxy / SSO portal
+                # (e.g. Cloudflare Access) sending the request to a login page
+                # before it ever reaches TrueNAS.
+                return ERR_PROXY_INTERCEPTED
             case 401 | 403:
-                return ERR_INVALID_KEY
+                # Auth rejected at the HTTP handshake, before the TrueNAS login
+                # RPC. TrueNAS upgrades the WebSocket regardless of key validity
+                # and only checks the key afterwards, so a 401/403 here is the
+                # proxy/gateway refusing the connection, not a bad API key.
+                return ERR_PROXY_INTERCEPTED
             case 404:
                 return ERR_API_NOT_FOUND
 
