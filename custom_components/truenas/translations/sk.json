@@ -6,39 +6,83 @@
                 "data": {
                     "name": "Názov integrácie",
                     "host": "Hostiteľ",
-                    "username": "Používateľské meno",
                     "api_key": "API kľúč",
                     "verify_ssl": "Overte certifikát SSL",
-                    "cronjob_skip_disabled": "Skip disabled cronjobs on manual run"
+                    "cronjob_skip_disabled": "Pri manuálnom spustení preskočiť zakázané cron úlohy",
+                    "data_unit": "Jednotka veľkosti údajov (GB alebo GiB)"
                 }
             },
             "reconfigure": {
-                "description": "Reconfigure TrueNAS integration.",
+                "description": "Znovu nakonfigurovať integráciu TrueNAS.",
                 "data": {
-                    "host": "Host",
-                    "username": "Username",
-                    "api_key": "API key",
-                    "verify_ssl": "Verify SSL certificate",
-                    "cronjob_skip_disabled": "Skip disabled cronjobs on manual run"
+                    "host": "Hostiteľ",
+                    "api_key": "API kľúč",
+                    "verify_ssl": "Overte certifikát SSL",
+                    "cronjob_skip_disabled": "Pri manuálnom spustení preskočiť zakázané cron úlohy",
+                    "data_unit": "Jednotka veľkosti údajov (GB alebo GiB)"
                 }
             }
         },
         "error": {
             "name_exists": "Názov už existuje.",
             "invalid_key": "Prihlásenie zlyhalo, neplatný kľúč API.",
-            "invalid_hostname": "Pripojenie zlyhalo, neplatné meno hostiteľa.",
+            "proxy_intercepted": "Spojenie zachytené reverzným proxy alebo SSO portálom (napr. Cloudflare Access). Nasmerujte integráciu priamo na hostiteľa TrueNAS cez vašu LAN/VPN, alebo vyňmite koncový bod WebSocket z autentifikácie proxy.",
+            "invalid_hostname": "Neplatný hostiteľ. Zadajte len názov hostiteľa alebo IP adresu — bez \"https://\", cesty alebo koncovej lomky.",
             "connection_refused": "Pripojenie zlyhalo, pripojenie bolo odmietnuté.",
             "handshake_timeout": "Pripojenie zlyhalo, počas čakania na odpoveď na podanie ruky došlo k časovému oneskoreniu.",
             "api_not_found": "Pripojenie zlyhalo, API sa nenašlo.",
+            "cannot_connect": "Nepodarilo sa pripojiť k hostiteľovi (TCP port {port} zatvorený alebo časový limit).",
             "malformed_result": "Odpoveď API je chybná.",
-            "certificate_verify_failed": "Certificate verification failed.",
-            "http_used": "The plain HTTP request was sent to HTTPS port. Reverse proxy?",
-            "tlsv1_not_supported": "TLSv1 not supported. Reverse proxy?",
-            "websocket_not_supported": "WebSocket not supported. Reverse proxy?",
-            "unknown_hostname": "Unknown hostname, check DNS."
+            "certificate_verify_failed": "Overenie certifikátu zlyhalo.",
+            "http_used": "Obyčajná HTTP požiadavka bola odoslaná na port HTTPS. Reverzný proxy?",
+            "tlsv1_not_supported": "TLSv1 nie je podporované. Reverzný proxy?",
+            "websocket_not_supported": "WebSocket nie je podporovaný. Reverzný proxy?",
+            "unknown_hostname": "Neznámy názov hostiteľa, skontrolujte DNS.",
+            "unknown": "Vyskytla sa neznáma chyba."
         },
         "abort": {
-            "reconfigure_successful": "Reconfigure successful."
+            "reconfigure_successful": "Rekonfigurácia úspešná."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Možnosti TrueNAS",
+                "data": {
+                    "poll_interval": "Interval dotazovania (sekundy)",
+                    "data_unit": "Jednotka veľkosti údajov",
+                    "behaviors": "Správanie",
+                    "monitored_groups": "Monitorované skupiny"
+                },
+                "data_description": {
+                    "behaviors": "Vyberte, ktoré správania sú aktívne",
+                    "monitored_groups": "Zrušte výber skupín, ktoré nepoužívate, aby ste znížili počet senzorov"
+                }
+            }
+        }
+    },
+    "issues": {
+        "statistics_orphaned": {
+            "title": "Osirotené štatistiky TrueNAS",
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "title": "Vyčistiť osirotené štatistiky TrueNAS",
+                        "description": "{count} dlhodobá(é) štatistika(y) patrí entitám TrueNAS, ktoré už neexistujú (zobrazujú sa ako „žiadny stav k dispozícii“ v Nástroje pre vývojárov > Štatistiky). Vyberte, čo robiť.",
+                        "menu_options": {
+                            "fix": "Odstrániť osirotené štatistiky",
+                            "ignore": "Ignorovať (znova neupozorňovať)"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "entity": {
+        "button": {
+            "statistics_cleanup": {
+                "name": "Vyčistiť osirotené štatistiky"
+            }
         }
     }
 }
