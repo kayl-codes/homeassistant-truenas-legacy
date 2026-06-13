@@ -273,10 +273,11 @@ After setup you can fine-tune the integration via **Settings → Devices & Servi
 # Development
 
 ## Translation
-To help out with the translation you need an account on Lokalise, the easiest way to get one is to [click here](https://lokalise.com/login/) then select "Log in with GitHub".
-After you have created your account [click here to join TrueNAS Integrations project on Lokalise](https://app.lokalise.com/public/9252786762290237258f09.36273104/).
+Translations live directly in this repository under [`custom_components/truenas/translations/`](custom_components/truenas/translations/), with `en.json` (mirrored from `strings.json`) as the source language. Currently shipped: English, German, Spanish, Russian, Slovak and Brazilian Portuguese.
 
-If you want to add translations for a language that is not listed please [open a Feature request](https://github.com/kayl-codes/homeassistant-truenas/issues/new?labels=enhancement&title=%5BLokalise%5D%20Add%20new%20translations%20language).
+> **Note:** The Lokalise project referenced by the upstream integration is **not wired up for this fork**, so translations are currently maintained by hand in this repository rather than synced through Lokalise.
+
+To fix or improve a translation, edit the matching `<lang>.json` next to `en.json` (keep it in key-parity with `en.json`) and open a pull request. To request a language that is not listed yet, please [open a feature request](https://github.com/kayl-codes/homeassistant-truenas/issues/new?labels=enhancement&title=%5BTranslation%5D%20Add%20new%20language).
 
 ## Enabling debug
 To enable debug for TrueNAS integration, add following to your configuration.yaml:
