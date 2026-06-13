@@ -232,21 +232,23 @@ def configured_instances(hass):
 # ---------------------------
 #   _sanitize_host
 # ---------------------------
-# Matches a leading URL scheme such as "https://", "http://", "wss://", "ws://".
+# Strip a leading URL scheme (e.g. "https://" or "http://") from the host.
 _SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+# Everything from the first path/query/fragment delimiter is not part of host.
+_HOST_TAIL_RE = re.compile(r"[/?#]")
 
 
 def _sanitize_host(host: str) -> str:
     """Normalize user input to the bare hostname/IP[:port] the API expects.
 
     Users frequently paste a full URL (for example
-    ``https://nas.example.com/ui``). The API layer requires a bare host, so
-    strip any scheme and path here instead of erroring out, so the value just
-    works.
+    ``https://nas.example.com/ui?tab=1``). The API layer requires a bare host,
+    so strip any scheme as well as a trailing path, query or fragment here
+    instead of erroring out, so the value just works.
     """
     host = host.strip()
     host = _SCHEME_RE.sub("", host)  # drop a leading scheme
-    host = host.split("/", 1)[0]  # drop any path/query/fragment
+    host = _HOST_TAIL_RE.split(host, maxsplit=1)[0]  # drop path/query/fragment
     return host.strip()
 
 
@@ -293,13 +295,13 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
                 config[CONF_VERIFY_SSL],
             )
         except ValueError:
-            # TrueNASAPI rejects hosts that carry a scheme ("https://") or path.
-            # Surface a clear, actionable error instead of an unhandled
+            # _sanitize_host already removes a scheme/path up front, so this
+            # only triggers for a genuinely malformed host that the API layer
+            # still rejects. Surface a clear error instead of an unhandled
             # exception (which the frontend reports as a generic failure).
             errors[CONF_HOST] = ERR_INVALID_HOSTNAME
             _LOGGER.error(
-                "TrueNAS host %r is not a bare hostname/IP "
-                "(remove any scheme like 'https://' and trailing path)",
+                "TrueNAS host %r is not a usable hostname or IP address",
                 config.get(CONF_HOST),
             )
             return
