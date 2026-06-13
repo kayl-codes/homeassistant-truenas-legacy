@@ -8,35 +8,81 @@
                     "host": "Хост",
                     "api_key": "Ключ API",
                     "verify_ssl": "Проверка SSL-сертификата",
-                    "cronjob_skip_disabled": "Skip disabled cronjobs on manual run"
+                    "cronjob_skip_disabled": "Пропускать отключённые cron-задачи при ручном запуске",
+                    "data_unit": "Единица размера данных (GB или GiB)"
                 }
             },
             "reconfigure": {
-                "description": "Reconfigure TrueNAS integration.",
+                "description": "Перенастройка интеграции TrueNAS.",
                 "data": {
-                    "host": "Host",
-                    "api_key": "API key",
-                    "verify_ssl": "Verify SSL certificate",
-                    "cronjob_skip_disabled": "Skip disabled cronjobs on manual run"
+                    "host": "Хост",
+                    "api_key": "Ключ API",
+                    "verify_ssl": "Проверка SSL-сертификата",
+                    "cronjob_skip_disabled": "Пропускать отключённые cron-задачи при ручном запуске",
+                    "data_unit": "Единица размера данных (GB или GiB)"
                 }
             }
         },
         "error": {
-            "name_exists": "Имя уже используется",
-            "invalid_key": "Login failed, invalid API key.",
-            "invalid_hostname": "Connection failed, invalid hostname.",
-            "connection_refused": "Connection failed, connection refused.",
-            "handshake_timeout": "Connection failed, timed out while waiting for handshake response.",
-            "api_not_found": "Connection failed, API not found.",
-            "malformed_result": "API response is malformed.",
-            "certificate_verify_failed": "Certificate verification failed.",
-            "http_used": "The plain HTTP request was sent to HTTPS port. Reverse proxy?",
-            "tlsv1_not_supported": "TLSv1 not supported. Reverse proxy?",
-            "websocket_not_supported": "WebSocket not supported. Reverse proxy?",
-            "unknown_hostname": "Unknown hostname, check DNS."
+            "name_exists": "Имя уже используется.",
+            "invalid_key": "Ошибка входа, неверный ключ API.",
+            "proxy_intercepted": "Соединение перехвачено обратным прокси или SSO-порталом (например, Cloudflare Access). Укажите интеграции хост TrueNAS напрямую через локальную сеть/VPN или исключите конечную точку WebSocket из аутентификации прокси.",
+            "invalid_hostname": "Неверный хост. Введите только имя хоста или IP-адрес — без «https://», пути и завершающей косой черты.",
+            "connection_refused": "Не удалось подключиться, в соединении отказано.",
+            "handshake_timeout": "Не удалось подключиться, истекло время ожидания ответа при рукопожатии.",
+            "api_not_found": "Не удалось подключиться, API не найден.",
+            "cannot_connect": "Не удалось подключиться к хосту (TCP-порт {port} закрыт или истекло время ожидания).",
+            "malformed_result": "Ответ API имеет неверный формат.",
+            "certificate_verify_failed": "Не удалось проверить сертификат.",
+            "http_used": "Обычный HTTP-запрос был отправлен на порт HTTPS. Обратный прокси?",
+            "tlsv1_not_supported": "TLSv1 не поддерживается. Обратный прокси?",
+            "websocket_not_supported": "WebSocket не поддерживается. Обратный прокси?",
+            "unknown_hostname": "Неизвестное имя хоста, проверьте DNS.",
+            "unknown": "Произошла неизвестная ошибка."
         },
         "abort": {
-            "reconfigure_successful": "Reconfigure successful."
+            "reconfigure_successful": "Перенастройка выполнена успешно."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Параметры TrueNAS",
+                "data": {
+                    "poll_interval": "Интервал опроса (секунды)",
+                    "data_unit": "Единица размера данных",
+                    "behaviors": "Поведение",
+                    "monitored_groups": "Отслеживаемые группы"
+                },
+                "data_description": {
+                    "behaviors": "Выберите, какие варианты поведения активны",
+                    "monitored_groups": "Снимите отметки с групп, которые вы не используете, чтобы уменьшить количество сенсоров"
+                }
+            }
+        }
+    },
+    "issues": {
+        "statistics_orphaned": {
+            "title": "Осиротевшая статистика TrueNAS",
+            "fix_flow": {
+                "step": {
+                    "init": {
+                        "title": "Очистка осиротевшей статистики TrueNAS",
+                        "description": "{count} элемент(ов) долгосрочной статистики принадлежат сущностям TrueNAS, которых больше не существует (они отображаются как «нет данных о состоянии» в Инструменты разработчика > Статистика). Выберите, что делать.",
+                        "menu_options": {
+                            "fix": "Удалить осиротевшую статистику",
+                            "ignore": "Игнорировать (больше не уведомлять)"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "entity": {
+        "button": {
+            "statistics_cleanup": {
+                "name": "Очистить осиротевшую статистику"
+            }
         }
     }
 }
