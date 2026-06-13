@@ -46,6 +46,15 @@ def format_unique_id(inst: str, key: str, reference: object = None) -> str:
     return f"{base}-{slugify(str(reference).lower())}"
 
 
+def format_device_identifier(inst: str, hostname: str) -> str:
+    """Build the main TrueNAS ("System") device identifier value.
+
+    Shared so other platforms (e.g. the diagnostic statistics-cleanup button)
+    associate with the existing device instead of duplicating the format.
+    """
+    return f"{inst}_{hostname}"
+
+
 # ---------------------------
 #   Entity discovery helpers
 # ---------------------------
@@ -281,8 +290,8 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
         dev_connection_value = f"{self._inst}_{self.entity_description.ha_group}"
         dev_group = self.entity_description.ha_group
         if self.entity_description.ha_group == "System":
-            dev_connection_value = (
-                f"{self._inst}_{self.coordinator.data['system_info']['hostname']}"
+            dev_connection_value = format_device_identifier(
+                self._inst, self.coordinator.data["system_info"]["hostname"]
             )
 
         if self.entity_description.ha_group.startswith("data__"):
@@ -320,7 +329,9 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
             default_manufacturer=f"{self.coordinator.data['system_info']['system_manufacturer']}",
             via_device=(
                 DOMAIN,
-                f"{self._inst}_{self.coordinator.data['system_info']['hostname']}",
+                format_device_identifier(
+                    self._inst, self.coordinator.data["system_info"]["hostname"]
+                ),
             ),
         )
 

@@ -14,6 +14,15 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 
 ---
 
+## [1.9.1] — Orphaned statistics cleanup
+
+### Fixed
+- **Orphaned long-term statistics can now be cleaned up:** after an entity-id rename the
+  recorder can leave the old `sensor.truenas_*` statistics behind (they show as "no state
+  available" in *Developer Tools → Statistics*). The integration now detects these each poll
+  and surfaces a **Repairs** issue (Fix → delete, or Ignore) plus a diagnostic
+  **"Clean up orphaned statistics"** button that is available whenever orphans exist.
+
 ## [1.9.0] — Run buttons, action descriptions & robustness
 
 ### Added
@@ -206,6 +215,7 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 - Handle JSON-RPC parsing errors to prevent crashes on unexpected API formats.
 - Modern type hints and `.get()` fallbacks to avoid `KeyError` crashes.
 
+[1.9.1]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.9.1
 [1.9.0]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.9.0
 [1.8.1]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.8.1
 [1.8.0]: https://github.com/kayl-codes/homeassistant-truenas/releases/tag/1.8.0

@@ -120,6 +120,11 @@ SCHEMA_SERVICE_SYSTEM_SHUTDOWN = {}
 CONF_CRONJOB_SKIP_DISABLED = "cronjob_skip_disabled"
 CONF_DATA_UNIT = "data_unit"
 
+# Orphaned long-term statistics cleanup (Repairs issue + diagnostic button).
+CONF_STATISTICS_CLEANUP_IGNORED = "statistics_cleanup_ignored"
+ISSUE_STATISTICS_ORPHANED = "statistics_orphaned"
+BUTTON_STATISTICS_CLEANUP = "statistics_cleanup"
+
 # Options-Flow
 CONF_POLL_INTERVAL = "poll_interval"
 DEFAULT_POLL_INTERVAL = 60
