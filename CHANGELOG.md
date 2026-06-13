@@ -14,14 +14,36 @@ Minimum requirements throughout this fork: **Home Assistant 2024.8.0**, **TrueNA
 
 ---
 
-## [1.9.1] — Orphaned statistics cleanup
+## [1.9.1] — Orphaned statistics cleanup, reverse-proxy detection & translations
+
+### Added
+- **German translation + completed locales (#47):** added a full German (`de`) translation and
+  brought the existing Spanish, Russian, Slovak and Brazilian-Portuguese files back to full
+  parity with English (they were missing ~43% of strings, including the whole options flow and
+  the Repairs texts). A new CI check now validates every locale against `en.json` (keys +
+  `{count}`/`{port}` placeholders) so they can't drift again.
+- **Reverse-proxy / SSO detection (#45, #46):** when the WebSocket handshake is intercepted by a
+  reverse proxy or SSO portal (e.g. Cloudflare Access), setup now shows a clear
+  *"intercepted by a reverse proxy or SSO portal"* message instead of a misleading
+  *"invalid API key"* / *"unknown error"*.
 
 ### Fixed
-- **Orphaned long-term statistics can now be cleaned up:** after an entity-id rename the
+- **Orphaned long-term statistics can now be cleaned up (#44):** after an entity-id rename the
   recorder can leave the old `sensor.truenas_*` statistics behind (they show as "no state
   available" in *Developer Tools → Statistics*). The integration now detects these each poll
   and surfaces a **Repairs** issue (Fix → delete, or Ignore) plus a diagnostic
   **"Clean up orphaned statistics"** button that is available whenever orphans exist.
+- **Orphan detection now covers custom instance names (#48):** statistics from an instance whose
+  name slug merges the domain into a longer token (e.g. `sensor.truenasviacfnoauth_*`) are now
+  recognised too, so the cleanup button no longer stays greyed out for them.
+- **Host field accepts pasted URLs (#45, #46):** a leading `https://`, a path or a trailing slash
+  in the *Host* field are now stripped automatically instead of failing the setup.
+
+### Documentation
+- **Reverse proxies & required permissions (#45):** README now documents that the integration
+  must reach the TrueNAS host directly (LAN/VPN) — an auth gateway in front of it cannot be
+  bypassed — and that the API key's user needs the appropriate role. The Translation section was
+  updated to reflect that translations are maintained directly in this repository.
 
 ## [1.9.0] — Run buttons, action descriptions & robustness
 
