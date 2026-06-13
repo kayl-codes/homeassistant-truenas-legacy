@@ -268,13 +268,16 @@ def _first_ipv4(aliases: Any) -> str:
 def _is_truenas_sensor_id(statistic_id: str) -> bool:
     """Return True if a recorder statistic_id looks like a TrueNAS sensor.
 
-    Entity ids vary across versions (``sensor.truenas_...`` and
-    ``sensor.system_truenas_...``), so match the domain as a token rather than a
-    fixed prefix to catch every orphaned variant.
+    Entity ids vary across versions and instance names (``sensor.truenas_...``,
+    ``sensor.system_truenas_...`` and custom names whose slug merges the domain
+    into a longer token, e.g. ``sensor.truenasviacfnoauth_...``). Match the domain
+    as a substring of any underscore-separated token rather than as an exact token
+    or fixed prefix, so every orphaned variant is caught.
     """
     if not statistic_id.startswith("sensor."):
         return False
-    return DOMAIN in statistic_id[len("sensor.") :].split("_")
+    tokens = statistic_id[len("sensor.") :].split("_")
+    return any(DOMAIN in token for token in tokens)
 
 
 # ---------------------------
