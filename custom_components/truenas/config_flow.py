@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import socket
 from collections.abc import Mapping
 from logging import getLogger
@@ -52,6 +53,7 @@ from .const import (
     ERR_INVALID_HOSTNAME,
     ERR_INVALID_KEY,
     ERR_MALFORMED_RESULT,
+    ERR_PROXY_INTERCEPTED,
     ERR_TLS_NOT_SUPPORTED,
     ERR_UNKNOWN_HOSTNAME,
     ERR_WS_NOT_SUPPORTED,
@@ -205,6 +207,7 @@ def _map_error_to_ha(errorcode: str) -> str:
         ERR_TLS_NOT_SUPPORTED,
         ERR_WS_NOT_SUPPORTED,
         ERR_INVALID_KEY,
+        ERR_PROXY_INTERCEPTED,
         ERR_INVALID_HOSTNAME,
         ERR_UNKNOWN_HOSTNAME,
         ERR_CONNECTION_REFUSED,
@@ -224,6 +227,29 @@ def configured_instances(hass):
     return {
         entry.data[CONF_NAME] for entry in hass.config_entries.async_entries(DOMAIN)
     }
+
+
+# ---------------------------
+#   _sanitize_host
+# ---------------------------
+# Strip a leading URL scheme (e.g. "https://" or "http://") from the host.
+_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+# Everything from the first path/query/fragment delimiter is not part of host.
+_HOST_TAIL_RE = re.compile(r"[/?#]")
+
+
+def _sanitize_host(host: str) -> str:
+    """Normalize user input to the bare hostname/IP[:port] the API expects.
+
+    Users frequently paste a full URL (for example
+    ``https://nas.example.com/ui?tab=1``). The API layer requires a bare host,
+    so strip any scheme as well as a trailing path, query or fragment here
+    instead of erroring out, so the value just works.
+    """
+    host = host.strip()
+    host = _SCHEME_RE.sub("", host)  # drop a leading scheme
+    host = _HOST_TAIL_RE.split(host, maxsplit=1)[0]  # drop path/query/fragment
+    return host.strip()
 
 
 # ---------------------------
@@ -261,12 +287,25 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
         self, config: dict[str, Any], errors: dict[str, str]
     ) -> None:
         """Test the API connection and record a mapped error on failure."""
-        api = await self.hass.async_add_executor_job(
-            TrueNASAPI,
-            config[CONF_HOST],
-            config[CONF_API_KEY],
-            config[CONF_VERIFY_SSL],
-        )
+        try:
+            api = await self.hass.async_add_executor_job(
+                TrueNASAPI,
+                config[CONF_HOST],
+                config[CONF_API_KEY],
+                config[CONF_VERIFY_SSL],
+            )
+        except ValueError:
+            # _sanitize_host already removes a scheme/path up front, so this
+            # only triggers for a genuinely malformed host that the API layer
+            # still rejects. Surface a clear error instead of an unhandled
+            # exception (which the frontend reports as a generic failure).
+            errors[CONF_HOST] = ERR_INVALID_HOSTNAME
+            _LOGGER.error(
+                "TrueNAS host %r is not a usable hostname or IP address",
+                config.get(CONF_HOST),
+            )
+            return
+
         conn, errorcode = await self.hass.async_add_executor_job(api.connection_test)
         await self.hass.async_add_executor_job(api.disconnect)
 
@@ -292,6 +331,8 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
             truenas_config[CONF_HOST] = default_host
 
         if user_input is not None:
+            if CONF_HOST in user_input:
+                user_input[CONF_HOST] = _sanitize_host(user_input[CONF_HOST])
             truenas_config.update(user_input)
 
             # Check if instance with this name already exists
@@ -325,6 +366,8 @@ class TrueNASConfigFlow(ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
+            if CONF_HOST in user_input:
+                user_input[CONF_HOST] = _sanitize_host(user_input[CONF_HOST])
             # Do not overwrite existing API key if the field is left blank
             if not user_input.get(CONF_API_KEY):
                 user_input.pop(CONF_API_KEY, None)
