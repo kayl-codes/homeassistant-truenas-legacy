@@ -125,11 +125,14 @@ REPO = GITHUB.get_repo(REPO_NAME)
 if UPDATERELEASE == "yes":
     VERSION = str(sys.argv[6]).replace("refs/tags/", "")
     RELEASE = REPO.get_release(VERSION)
-    existing_body = (RELEASE.body or "").strip()
+    # Keep the raw body so curated formatting (leading/trailing blank lines) is
+    # preserved; only use a stripped copy to decide whether notes actually exist.
+    existing_body = RELEASE.body or ""
     badge = BADGE.format(version=VERSION)
-    if existing_body:
-        # Curated notes are already present: keep them untouched and only make
-        # sure the download badge sits on top (never duplicate it on re-runs).
+    if existing_body.strip():
+        # Curated notes are already present: keep them untouched and prepend the
+        # download badge, unless one is already there (BADGE_MARKER) so re-runs
+        # never duplicate it.
         if BADGE_MARKER in existing_body:
             new_body = existing_body
         else:
