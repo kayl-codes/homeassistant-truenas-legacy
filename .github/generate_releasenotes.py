@@ -114,6 +114,9 @@ REPO = GITHUB.get_repo(REPO_NAME)
 if UPDATERELEASE == "yes":
     VERSION = str(sys.argv[6]).replace("refs/tags/", "")
     RELEASE = REPO.get_release(VERSION)
+    # Preserve the existing draft/prerelease flags: update_release() defaults
+    # both to False, so omitting them would silently flip a pre-release into a
+    # normal "Latest" release when the notes are regenerated on publish.
     RELEASE.update_release(
         name=f"TrueNAS {VERSION}",
         message=BODY.format(
@@ -122,6 +125,8 @@ if UPDATERELEASE == "yes":
                 integration_changes=get_integration_commits(GITHUB),
             ),
         ),
+        draft=RELEASE.draft,
+        prerelease=RELEASE.prerelease,
     )
 else:
     integration_changes = get_integration_commits(GITHUB, False)

@@ -5,11 +5,13 @@ on:
     paths:
       - 'custom_components/**'
       - 'tests/**'
+      - '.github/**'
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
       - 'custom_components/**'
       - 'tests/**'
+      - '.github/**'
   workflow_dispatch:
 
 permissions:
