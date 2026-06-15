@@ -25,8 +25,19 @@ import sys
 
 from github import Github
 
+BADGE = (
+    "[![Downloads for this release]"
+    "(https://img.shields.io/github/downloads/"
+    "kayl-codes/homeassistant-truenas/{version}/total.svg)]"
+    "(https://github.com/kayl-codes/homeassistant-truenas/releases/{version})"
+)
+
+# Stable substring used to detect a badge already present in a release body,
+# so re-runs on publish never duplicate it.
+BADGE_MARKER = "img.shields.io/github/downloads"
+
 BODY = """
-[![Downloads for this release](https://img.shields.io/github/downloads/kayl-codes/homeassistant-truenas/{version}/total.svg)](https://github.com/kayl-codes/homeassistant-truenas/releases/{version})
+{badge}
 
 {changes}
 """
@@ -114,17 +125,29 @@ REPO = GITHUB.get_repo(REPO_NAME)
 if UPDATERELEASE == "yes":
     VERSION = str(sys.argv[6]).replace("refs/tags/", "")
     RELEASE = REPO.get_release(VERSION)
+    existing_body = (RELEASE.body or "").strip()
+    badge = BADGE.format(version=VERSION)
+    if existing_body:
+        # Curated notes are already present: keep them untouched and only make
+        # sure the download badge sits on top (never duplicate it on re-runs).
+        if BADGE_MARKER in existing_body:
+            new_body = existing_body
+        else:
+            new_body = f"{badge}\n\n{existing_body}"
+    else:
+        # No curated notes: fall back to the auto-generated badge + commit list.
+        new_body = BODY.format(
+            badge=badge,
+            changes=CHANGES.format(
+                integration_changes=get_integration_commits(GITHUB),
+            ),
+        )
     # Preserve the existing draft/prerelease flags: update_release() defaults
     # both to False, so omitting them would silently flip a pre-release into a
     # normal "Latest" release when the notes are regenerated on publish.
     RELEASE.update_release(
         name=f"TrueNAS {VERSION}",
-        message=BODY.format(
-            version=VERSION,
-            changes=CHANGES.format(
-                integration_changes=get_integration_commits(GITHUB),
-            ),
-        ),
+        message=new_body,
         draft=RELEASE.draft,
         prerelease=RELEASE.prerelease,
     )
