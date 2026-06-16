@@ -178,3 +178,48 @@ app_stop:
     entity:
       integration: truenas
       domain: binary_sensor
+
+dataset_lock:
+  name: Lock dataset
+  description: Lock an encrypted dataset (target the dataset sensor).
+  fields:
+    force_unmount:
+      name: Force unmount
+      description: Force unmount dataset mountpoints before locking.
+      required: false
+      default: false
+      selector:
+        boolean:
+  target:
+    entity:
+      integration: truenas
+      domain: sensor
+
+dataset_unlock:
+  name: Unlock dataset
+  description: Unlock an encrypted dataset (target the dataset sensor). Requires the dataset passphrase.
+  fields:
+    passphrase:
+      name: Passphrase
+      description: The encryption passphrase to unlock the dataset.
+      required: true
+      selector:
+        text: {}
+    recursive:
+      name: Recursive
+      description: Unlock datasets recursively.
+      required: false
+      default: false
+      selector:
+        boolean: {}
+    force:
+      name: Force
+      description: Force the unlock operation.
+      required: false
+      default: false
+      selector:
+        boolean: {}
+  target:
+    entity:
+      integration: truenas
+      domain: sensor

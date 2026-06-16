@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from logging import getLogger
@@ -11,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
 
@@ -150,6 +152,38 @@ class TrueNASUptimeSensor(TrueNASSensor):
 # ---------------------------
 class TrueNASDatasetSensor(TrueNASSensor):
     """Define an TrueNAS Dataset sensor."""
+    
+    async def _wait_for_job(self, job_id: int, action: str, timeout: int = 30) -> None:
+        """Wait until a middleware job finishes."""
+        for _ in range(timeout):
+            jobs = await self.hass.async_add_executor_job(
+                self.coordinator.api.query,
+                "core.get_jobs",
+                [[["id", "=", job_id]]],
+            )
+            if not jobs:
+                await asyncio.sleep(1)
+                continue
+
+            job = jobs[0] if isinstance(jobs, list) else jobs
+            state = job.get("state", "UNKNOWN") if isinstance(job, dict) else "UNKNOWN"
+
+            if state == "SUCCESS":
+                return
+
+            if state in ["FAILED", "ABORTED"]:
+                error = "unknown error"
+                if isinstance(job, dict):
+                    error = job.get("error") or job.get("exception") or error
+                raise HomeAssistantError(
+                    f"Failed to {action} dataset {self._data['name']} on {self.coordinator.host}: {error}"
+                )
+
+            await asyncio.sleep(1)
+
+        raise HomeAssistantError(
+            f"Timeout while waiting to {action} dataset {self._data['name']} on {self.coordinator.host}"
+        )
 
     async def snapshot(self) -> None:
         """Create dataset snapshot."""
@@ -167,6 +201,61 @@ class TrueNASDatasetSensor(TrueNASSensor):
                 payload,
             )
 
+    async def lock(self, force_unmount: bool = False) -> None:
+        """Lock a dataset.
+
+        Args:
+            force_unmount: Force unmount dataset mountpoints before locking.
+        """
+        payload = {
+            [ self._data.get("id"),
+              {
+                "force_unmount": force_unmount
+              },
+						],
+				}
+        job_id = await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "pool.dataset.lock",
+            payload,
+        )
+        if not isinstance(job_id, int):
+            raise HomeAssistantError(
+                f"Failed to lock dataset {self._data['name']} on {self.coordinator.host}: invalid job id"
+            )
+        await self._wait_for_job(job_id, "lock")
+        
+    async def unlock(self, passphrase: str, recursive: bool = False, force: bool = False) -> None:
+        """Unlock a dataset using the provided passphrase.
+
+        Args:
+            passphrase: The dataset passphrase.
+            recursive: Unlock datasets recursively.
+            force: Force the unlock operation.
+        """
+        payload = {
+          [ self._data.get("id"),
+            { "datasets": 
+              [
+                { "name": self._data.get("name"),
+                  "passphrase": passphrase,
+                  "recursive": recursive,
+                  "force": force,
+							  }
+						  ],
+						},
+					],
+        }
+        job_id = await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "pool.dataset.unlock",
+            payload,
+        )
+        if not isinstance(job_id, int):
+            raise HomeAssistantError(
+                f"Failed to unlock dataset {self._data['name']} on {self.coordinator.host}: invalid job id"
+            )
+        await self._wait_for_job(job_id, "unlock")
 
 # ---------------------------
 #   TrueNASRsyncSensor
