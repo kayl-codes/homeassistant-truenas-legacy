@@ -96,6 +96,8 @@ DEVICE_ATTRIBUTES_DATASET = (
     "readonly",
     "recordsize",
     "encryption_algorithm",
+    "encrypted",
+    "locked",
     "used",
     "available",
 )

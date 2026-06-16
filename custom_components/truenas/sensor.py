@@ -201,16 +201,16 @@ class TrueNASDatasetSensor(TrueNASSensor):
                 payload,
             )
 
-    async def lock(self, force_unmount: bool = False) -> None:
+    async def lock(self, force_umount: bool = False) -> None:
         """Lock a dataset.
 
         Args:
-            force_unmount: Force unmount dataset mountpoints before locking.
+            force_umount: Force umount dataset mountpoints before locking.
         """
         payload = {
             [ self._data.get("id"),
               {
-                "force_unmount": force_unmount
+                "force_umount": force_umount
               },
 						],
 				}
