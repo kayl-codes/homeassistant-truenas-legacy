@@ -207,13 +207,13 @@ class TrueNASDatasetSensor(TrueNASSensor):
         Args:
             force_umount: Force umount dataset mountpoints before locking.
         """
-        payload = {
-            [ self._data.get("id"),
+        payload = [
+            self._data.get("id"),
               {
                 "force_umount": force_umount
               },
-						],
-				}
+						]
+        
         job_id = await self.hass.async_add_executor_job(
             self.coordinator.api.query,
             "pool.dataset.lock",
@@ -233,8 +233,8 @@ class TrueNASDatasetSensor(TrueNASSensor):
             recursive: Unlock datasets recursively.
             force: Force the unlock operation.
         """
-        payload = {
-          [ self._data.get("id"),
+        payload = [
+          self._data.get("id"),
             { "datasets": 
               [
                 { "name": self._data.get("name"),
@@ -244,8 +244,8 @@ class TrueNASDatasetSensor(TrueNASSensor):
 							  }
 						  ],
 						},
-					],
-        }
+					]
+    
         job_id = await self.hass.async_add_executor_job(
             self.coordinator.api.query,
             "pool.dataset.unlock",
