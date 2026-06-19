@@ -207,6 +207,17 @@ class TrueNASDatasetSensor(TrueNASSensor):
         Args:
             force_umount: Force umount dataset mountpoints before locking.
         """
+        await self.coordinator.async_request_refresh()
+        if self._data.get("locked", True):
+          _LOGGER.warning (
+            "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already locked",
+            self._data.get("id"),
+            self._data.get("name"),
+            self._data.get("locked"),
+            self._data.get("encrypted")
+          )
+          return
+
         payload = [
             self._data.get("id"),
               {
@@ -233,6 +244,17 @@ class TrueNASDatasetSensor(TrueNASSensor):
             recursive: Unlock datasets recursively.
             force: Force the unlock operation.
         """
+        await self.coordinator.async_request_refresh()
+        if not self._data.get("locked", True):
+          _LOGGER.warning (
+            "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already unlocked",
+            self._data.get("id"),
+            self._data.get("name"),
+            self._data.get("locked"),
+            self._data.get("encrypted")
+          )
+          return
+        
         payload = [
           self._data.get("id"),
             { "datasets": 
