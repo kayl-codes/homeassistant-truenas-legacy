@@ -186,7 +186,7 @@ dataset_lock:
     force_umount:
       name: Force umount
       description: Force unmounting of the dataset before locking.
-      required: true
+      required: false
       default: false
       selector:
         boolean:
@@ -209,17 +209,17 @@ dataset_unlock:
     recursive:
       name: Recursive
       description: Apply the key or passphrase to all encrypted children.
-      required: true
+      required: false
       default: false
       selector:
-        boolean: {}
+        boolean:
     force:
       name: Force
       description: Force unlock even if the mount path already exists and is not empty.
-      required: true
+      required: false
       default: false
       selector:
-        boolean: {}
+        boolean:
   target:
     entity:
       integration: truenas

@@ -108,12 +108,12 @@ SERVICE_DATASET_LOCK_FORCE_UMOUNT = "force_umount"
 SERVICE_DATASET_UNLOCK_RECURSIVE = "recursive"
 SERVICE_DATASET_UNLOCK_FORCE = "force"
 SCHEMA_SERVICE_DATASET_LOCK = {
-    vol.Required(SERVICE_DATASET_LOCK_FORCE_UMOUNT, default=False): cv.boolean,
+    vol.Optional(SERVICE_DATASET_LOCK_FORCE_UMOUNT, default=False): cv.boolean,
 }
 SCHEMA_SERVICE_DATASET_UNLOCK = {
     vol.Required(SERVICE_DATASET_UNLOCK_PASSPHRASE): cv.string,
-    vol.Required(SERVICE_DATASET_UNLOCK_RECURSIVE, default=False): cv.boolean,
-    vol.Required(SERVICE_DATASET_UNLOCK_FORCE, default=False): cv.boolean,
+    vol.Optional(SERVICE_DATASET_UNLOCK_RECURSIVE, default=False): cv.boolean,
+    vol.Optional(SERVICE_DATASET_UNLOCK_FORCE, default=False): cv.boolean,
 }
 
 SERVICE_SNAPSHOTTASK_RUN = "snapshottask_run"
