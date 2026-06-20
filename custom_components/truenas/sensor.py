@@ -160,8 +160,9 @@ class TrueNASDatasetSensor(TrueNASSensor):
 
     def _action_error(self, action: str, reason: str) -> str:
         """Build a uniform error message for a dataset action."""
+        dataset_name = self._data.get("name", "<unknown>")
         return (
-            f"Failed to {action} dataset {self._data['name']} "
+            f"Failed to {action} dataset {dataset_name} "
             f"on {self.coordinator.host}: {reason}"
         )
 
