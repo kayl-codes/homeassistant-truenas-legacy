@@ -38,6 +38,9 @@ _LOGGER = getLogger(__name__)
 JOB_POLL_INTERVAL = 1
 JOB_WAIT_TIMEOUT = 30
 JOB_STATES_FAILED = ("FAILED", "ABORTED")
+# Tolerate a few empty lookups (the job may not be queryable immediately after
+# start) before treating a persistently missing job as a failure.
+JOB_MAX_MISSING_POLLS = 5
 
 
 # ---------------------------
@@ -177,20 +180,35 @@ class TrueNASDatasetSensor(TrueNASSensor):
             jobs = jobs[0] if jobs else None
         return jobs if isinstance(jobs, dict) else None
 
+    def _job_finished(self, job: dict, action: str) -> bool:
+        """Return True if the job succeeded, raise on failure, False if running."""
+        state = job.get("state")
+        if state == "SUCCESS":
+            return True
+        if state in JOB_STATES_FAILED:
+            reason = job.get("error") or job.get("exception") or "unknown error"
+            raise HomeAssistantError(self._action_error(action, reason))
+        return False
+
     async def _wait_for_job(self, job_id: int, action: str) -> None:
         """Poll a middleware job until it succeeds, fails or times out."""
+        missing = 0
         try:
+            # asyncio.timeout() raises TimeoutError (the builtin is asyncio's
+            # TimeoutError on py3.11+; the alias is avoided per ruff UP041).
             async with asyncio.timeout(JOB_WAIT_TIMEOUT):
                 while True:
                     job = await self._poll_job(job_id)
-                    state = job.get("state") if job else None
-                    if state == "SUCCESS":
+                    if job is None:
+                        missing += 1
+                        if missing >= JOB_MAX_MISSING_POLLS:
+                            raise HomeAssistantError(
+                                self._action_error(action, f"job {job_id} not found")
+                            )
+                    elif self._job_finished(job, action):
                         return
-                    if state in JOB_STATES_FAILED:
-                        reason = (
-                            job.get("error") or job.get("exception") or "unknown error"
-                        )
-                        raise HomeAssistantError(self._action_error(action, reason))
+                    else:
+                        missing = 0
                     await asyncio.sleep(JOB_POLL_INTERVAL)
         except TimeoutError as err:
             raise HomeAssistantError(
@@ -226,7 +244,7 @@ class TrueNASDatasetSensor(TrueNASSensor):
 
     def _log_already(self, state: str) -> None:
         """Log that a dataset is already in the requested lock state."""
-        _LOGGER.warning(
+        _LOGGER.info(
             "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already %s",
             self._data.get("id"),
             self._data.get("name"),
