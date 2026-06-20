@@ -11,8 +11,8 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
 
@@ -33,6 +33,11 @@ from .sensor_types import (  # noqa: F401
 )
 
 _LOGGER = getLogger(__name__)
+
+# Middleware job polling for dataset lock/unlock operations.
+JOB_POLL_INTERVAL = 1
+JOB_WAIT_TIMEOUT = 30
+JOB_STATES_FAILED = ("FAILED", "ABORTED")
 
 
 # ---------------------------
@@ -152,38 +157,55 @@ class TrueNASUptimeSensor(TrueNASSensor):
 # ---------------------------
 class TrueNASDatasetSensor(TrueNASSensor):
     """Define an TrueNAS Dataset sensor."""
-    
-    async def _wait_for_job(self, job_id: int, action: str, timeout: int = 30) -> None:
-        """Wait until a middleware job finishes."""
-        for _ in range(timeout):
-            jobs = await self.hass.async_add_executor_job(
-                self.coordinator.api.query,
-                "core.get_jobs",
-                [[["id", "=", job_id]]],
-            )
-            if not jobs:
-                await asyncio.sleep(1)
-                continue
 
-            job = jobs[0] if isinstance(jobs, list) else jobs
-            state = job.get("state", "UNKNOWN") if isinstance(job, dict) else "UNKNOWN"
-
-            if state == "SUCCESS":
-                return
-
-            if state in ["FAILED", "ABORTED"]:
-                error = "unknown error"
-                if isinstance(job, dict):
-                    error = job.get("error") or job.get("exception") or error
-                raise HomeAssistantError(
-                    f"Failed to {action} dataset {self._data['name']} on {self.coordinator.host}: {error}"
-                )
-
-            await asyncio.sleep(1)
-
-        raise HomeAssistantError(
-            f"Timeout while waiting to {action} dataset {self._data['name']} on {self.coordinator.host}"
+    def _action_error(self, action: str, reason: str) -> str:
+        """Build a uniform error message for a dataset action."""
+        return (
+            f"Failed to {action} dataset {self._data['name']} "
+            f"on {self.coordinator.host}: {reason}"
         )
+
+    async def _poll_job(self, job_id: int) -> dict | None:
+        """Fetch a single middleware job by id."""
+        jobs = await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "core.get_jobs",
+            [[["id", "=", job_id]]],
+        )
+        if isinstance(jobs, list):
+            jobs = jobs[0] if jobs else None
+        return jobs if isinstance(jobs, dict) else None
+
+    async def _wait_for_job(self, job_id: int, action: str) -> None:
+        """Poll a middleware job until it succeeds, fails or times out."""
+        try:
+            async with asyncio.timeout(JOB_WAIT_TIMEOUT):
+                while True:
+                    job = await self._poll_job(job_id)
+                    state = job.get("state") if job else None
+                    if state == "SUCCESS":
+                        return
+                    if state in JOB_STATES_FAILED:
+                        reason = (
+                            job.get("error") or job.get("exception") or "unknown error"
+                        )
+                        raise HomeAssistantError(self._action_error(action, reason))
+                    await asyncio.sleep(JOB_POLL_INTERVAL)
+        except TimeoutError as err:
+            raise HomeAssistantError(
+                self._action_error(action, "timed out waiting for completion")
+            ) from err
+
+    async def _run_dataset_job(self, method: str, payload: list, action: str) -> None:
+        """Start a dataset middleware job and wait for it to finish."""
+        job_id = await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            method,
+            payload,
+        )
+        if not isinstance(job_id, int):
+            raise HomeAssistantError(self._action_error(action, "invalid job id"))
+        await self._wait_for_job(job_id, action)
 
     async def snapshot(self) -> None:
         """Create dataset snapshot."""
@@ -201,6 +223,17 @@ class TrueNASDatasetSensor(TrueNASSensor):
                 payload,
             )
 
+    def _log_already(self, state: str) -> None:
+        """Log that a dataset is already in the requested lock state."""
+        _LOGGER.warning(
+            "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already %s",
+            self._data.get("id"),
+            self._data.get("name"),
+            self._data.get("locked"),
+            self._data.get("encrypted"),
+            state,
+        )
+
     async def lock(self, force_umount: bool = False) -> None:
         """Lock a dataset.
 
@@ -209,34 +242,15 @@ class TrueNASDatasetSensor(TrueNASSensor):
         """
         await self.coordinator.async_request_refresh()
         if self._data.get("locked", True):
-          _LOGGER.warning (
-            "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already locked",
-            self._data.get("id"),
-            self._data.get("name"),
-            self._data.get("locked"),
-            self._data.get("encrypted")
-          )
-          return
+            self._log_already("locked")
+            return
 
-        payload = [
-            self._data.get("id"),
-              {
-                "force_umount": force_umount
-              },
-						]
-        
-        job_id = await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "pool.dataset.lock",
-            payload,
-        )
-        if not isinstance(job_id, int):
-            raise HomeAssistantError(
-                f"Failed to lock dataset {self._data['name']} on {self.coordinator.host}: invalid job id"
-            )
-        await self._wait_for_job(job_id, "lock")
-        
-    async def unlock(self, passphrase: str, recursive: bool = False, force: bool = False) -> None:
+        payload = [self._data.get("id"), {"force_umount": force_umount}]
+        await self._run_dataset_job("pool.dataset.lock", payload, "lock")
+
+    async def unlock(
+        self, passphrase: str, recursive: bool = False, force: bool = False
+    ) -> None:
         """Unlock a dataset using the provided passphrase.
 
         Args:
@@ -246,38 +260,24 @@ class TrueNASDatasetSensor(TrueNASSensor):
         """
         await self.coordinator.async_request_refresh()
         if not self._data.get("locked", True):
-          _LOGGER.warning (
-            "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already unlocked",
-            self._data.get("id"),
-            self._data.get("name"),
-            self._data.get("locked"),
-            self._data.get("encrypted")
-          )
-          return
-        
+            self._log_already("unlocked")
+            return
+
         payload = [
-          self._data.get("id"),
-            { "datasets": 
-              [
-                { "name": self._data.get("name"),
-                  "passphrase": passphrase,
-                  "recursive": recursive,
-                  "force": force,
-							  }
-						  ],
-						},
-					]
-    
-        job_id = await self.hass.async_add_executor_job(
-            self.coordinator.api.query,
-            "pool.dataset.unlock",
-            payload,
-        )
-        if not isinstance(job_id, int):
-            raise HomeAssistantError(
-                f"Failed to unlock dataset {self._data['name']} on {self.coordinator.host}: invalid job id"
-            )
-        await self._wait_for_job(job_id, "unlock")
+            self._data.get("id"),
+            {
+                "datasets": [
+                    {
+                        "name": self._data.get("name"),
+                        "passphrase": passphrase,
+                        "recursive": recursive,
+                        "force": force,
+                    }
+                ],
+            },
+        ]
+        await self._run_dataset_job("pool.dataset.unlock", payload, "unlock")
+
 
 # ---------------------------
 #   TrueNASRsyncSensor
