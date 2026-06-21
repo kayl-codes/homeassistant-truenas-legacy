@@ -281,14 +281,17 @@ class TrueNASDatasetSensor(TrueNASSensor):
         Args:
             force_umount: Force umount dataset mountpoints before locking.
         """
-        await self.coordinator.async_request_refresh()
+        # async_refresh (not async_request_refresh) so the locked state is read
+        # fresh here: request_refresh is debounced and may still return stale data
+        # when automations toggle datasets in quick succession.
+        await self.coordinator.async_refresh()
         if self._data.get("locked", True):
             self._log_already("locked")
             return
 
         payload = [self._data.get("id"), {"force_umount": force_umount}]
         await self._run_dataset_job("pool.dataset.lock", payload, "lock")
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh()
 
     async def unlock(
         self, passphrase: str, recursive: bool = False, force: bool = False
@@ -300,7 +303,8 @@ class TrueNASDatasetSensor(TrueNASSensor):
             recursive: Unlock datasets recursively.
             force: Force the unlock operation.
         """
-        await self.coordinator.async_request_refresh()
+        # See lock(): async_refresh forces fresh data before the idempotency check.
+        await self.coordinator.async_refresh()
         if not self._data.get("locked", True):
             self._log_already("unlocked")
             return
@@ -323,7 +327,7 @@ class TrueNASDatasetSensor(TrueNASSensor):
         ]
         result = await self._run_dataset_job("pool.dataset.unlock", payload, "unlock")
         self._raise_on_unlock_failure(result, "unlock")
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_refresh()
 
 
 # ---------------------------

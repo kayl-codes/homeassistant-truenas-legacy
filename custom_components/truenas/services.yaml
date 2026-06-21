@@ -187,6 +187,7 @@ dataset_lock:
       name: Force umount
       description: Force unmounting of the dataset before locking.
       required: true
+      default: false
       selector:
         boolean:
   target:
@@ -209,12 +210,14 @@ dataset_unlock:
       name: Recursive
       description: Apply the key or passphrase to all encrypted children.
       required: true
+      default: false
       selector:
         boolean:
     force:
       name: Force
       description: Force unlock even if the mount path already exists and is not empty.
       required: true
+      default: false
       selector:
         boolean:
   target:
