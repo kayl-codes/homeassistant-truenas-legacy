@@ -103,17 +103,18 @@ SCHEMA_SERVICE_DATASET_SNAPSHOT = {}
 
 SERVICE_DATASET_LOCK = "dataset_lock"
 SERVICE_DATASET_UNLOCK = "dataset_unlock"
-SERVICE_DATASET_UNLOCK_PASSPHRASE = "passphrase"  # nosec B105 - field name, not a secret
+# B105 false positive: this is the service *field name*, not a hardcoded secret.
+SERVICE_DATASET_UNLOCK_PASSPHRASE = "passphrase"  # nosec B105
 SERVICE_DATASET_LOCK_FORCE_UMOUNT = "force_umount"
 SERVICE_DATASET_UNLOCK_RECURSIVE = "recursive"
 SERVICE_DATASET_UNLOCK_FORCE = "force"
 SCHEMA_SERVICE_DATASET_LOCK = {
-    vol.Optional(SERVICE_DATASET_LOCK_FORCE_UMOUNT, default=False): cv.boolean,
+    vol.Required(SERVICE_DATASET_LOCK_FORCE_UMOUNT): cv.boolean,
 }
 SCHEMA_SERVICE_DATASET_UNLOCK = {
     vol.Required(SERVICE_DATASET_UNLOCK_PASSPHRASE): cv.string,
-    vol.Optional(SERVICE_DATASET_UNLOCK_RECURSIVE, default=False): cv.boolean,
-    vol.Optional(SERVICE_DATASET_UNLOCK_FORCE, default=False): cv.boolean,
+    vol.Required(SERVICE_DATASET_UNLOCK_RECURSIVE): cv.boolean,
+    vol.Required(SERVICE_DATASET_UNLOCK_FORCE): cv.boolean,
 }
 
 SERVICE_SNAPSHOTTASK_RUN = "snapshottask_run"
