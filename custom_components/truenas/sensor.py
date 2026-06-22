@@ -12,7 +12,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
@@ -264,9 +264,21 @@ class TrueNASDatasetSensor(TrueNASSensor):
                 payload,
             )
 
+    def _raise_if_not_encrypted(self, action: str) -> None:
+        """Reject lock/unlock on a dataset that is not encrypted.
+
+        Short-circuits before any middleware call: only encrypted datasets can
+        be locked/unlocked, so a non-encrypted target is a user error.
+        """
+        if not self._data.get("encrypted"):
+            name = self._data.get("name", "<unknown>")
+            raise ServiceValidationError(
+                f"Dataset {name} is not encrypted and cannot be {action}ed"
+            )
+
     def _log_already(self, state: str) -> None:
         """Log that a dataset is already in the requested lock state."""
-        _LOGGER.info(
+        _LOGGER.debug(
             "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already %s",
             self._data.get("id"),
             self._data.get("name"),
@@ -281,6 +293,7 @@ class TrueNASDatasetSensor(TrueNASSensor):
         Args:
             force_umount: Force umount dataset mountpoints before locking.
         """
+        self._raise_if_not_encrypted("lock")
         # async_refresh (not async_request_refresh) so the locked state is read
         # fresh here: request_refresh is debounced and may still return stale data
         # when automations toggle datasets in quick succession.
@@ -303,6 +316,7 @@ class TrueNASDatasetSensor(TrueNASSensor):
             recursive: Unlock datasets recursively.
             force: Force the unlock operation.
         """
+        self._raise_if_not_encrypted("unlock")
         # See lock(): async_refresh forces fresh data before the idempotency check.
         await self.coordinator.async_refresh()
         if not self._data.get("locked", True):
