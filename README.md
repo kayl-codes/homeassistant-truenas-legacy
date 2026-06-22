@@ -1,3 +1,14 @@
+> # ⚠️ This repository has moved
+>
+> **Development now continues as _TrueNAS CE_ 👉 [kayl-codes/homeassistant-truenas](https://github.com/kayl-codes/homeassistant-truenas).**
+>
+> This `-legacy` repository is kept **read-only for history only** and will receive **no further updates**.
+> The Home Assistant domain changed from `truenas` to `truenas_ce` — see the [migration guide](https://github.com/kayl-codes/homeassistant-truenas/blob/master/docs/migration.md).
+>
+> ⭐ **If you starred this repo, please re-star the new one** — GitHub stars do not carry over to the re-created project.
+
+---
+
 # TrueNAS Integration
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/kayl-codes/homeassistant-truenas?style=plastic)](https://github.com/kayl-codes/homeassistant-truenas/releases)
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg?style=plastic)](https://github.com/hacs/integration)
