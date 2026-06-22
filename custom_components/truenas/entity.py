@@ -377,3 +377,11 @@ class TrueNASEntity(CoordinatorEntity[TrueNASCoordinator], Entity):
     async def snapshot(self):
         """Snapshot function."""
         self._raise_unsupported("snapshot")
+
+    async def lock(self, **kwargs):
+        """Lock function."""
+        self._raise_unsupported("lock")
+
+    async def unlock(self, **kwargs):
+        """Unlock function."""
+        self._raise_unsupported("unlock")

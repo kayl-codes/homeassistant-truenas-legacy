@@ -1361,6 +1361,13 @@ class TrueNASCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "source": "encryption_algorithm/parsed",
                     "default": "unknown",
                 },
+                {
+                    "name": "encryption_key_format",
+                    "source": "key_format/parsed",
+                    "default": "unknown",
+                },
+                {"name": "encrypted", "type": "bool", "default": False},
+                {"name": "locked", "type": "bool", "default": False},
                 {"name": "used", "source": "used/parsed", "default": 0},
                 {"name": "available", "source": "available/parsed", "default": 0},
             ],

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
 from logging import getLogger
+from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util.dt import utc_from_timestamp
@@ -31,6 +34,14 @@ from .sensor_types import (  # noqa: F401
 )
 
 _LOGGER = getLogger(__name__)
+
+# Middleware job polling for dataset lock/unlock operations.
+JOB_POLL_INTERVAL = 1
+JOB_WAIT_TIMEOUT = 30
+JOB_STATES_FAILED = ("FAILED", "ABORTED")
+# Tolerate a few empty lookups (the job may not be queryable immediately after
+# start) before treating a persistently missing job as a failure.
+JOB_MAX_MISSING_POLLS = 5
 
 
 # ---------------------------
@@ -151,6 +162,92 @@ class TrueNASUptimeSensor(TrueNASSensor):
 class TrueNASDatasetSensor(TrueNASSensor):
     """Define an TrueNAS Dataset sensor."""
 
+    def _action_error(self, action: str, reason: str) -> str:
+        """Build a uniform error message for a dataset action."""
+        dataset_name = self._data.get("name", "<unknown>")
+        return (
+            f"Failed to {action} dataset {dataset_name} "
+            f"on {self.coordinator.host}: {reason}"
+        )
+
+    async def _poll_job(self, job_id: int) -> dict | None:
+        """Fetch a single middleware job by id."""
+        jobs = await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            "core.get_jobs",
+            [[["id", "=", job_id]]],
+        )
+        if isinstance(jobs, list):
+            jobs = jobs[0] if jobs else None
+        return jobs if isinstance(jobs, dict) else None
+
+    def _job_finished(self, job: dict, action: str) -> bool:
+        """Return True if the job succeeded, raise on failure, False if running."""
+        state = job.get("state")
+        if state == "SUCCESS":
+            return True
+        if state in JOB_STATES_FAILED:
+            reason = job.get("error") or job.get("exception") or "unknown error"
+            raise HomeAssistantError(self._action_error(action, reason))
+        return False
+
+    async def _wait_for_job(self, job_id: int, action: str) -> dict:
+        """Poll a middleware job until it succeeds, fails or times out."""
+        missing = 0
+        try:
+            # asyncio.timeout() raises TimeoutError (the builtin is asyncio's
+            # TimeoutError on py3.11+; the alias is avoided per ruff UP041).
+            async with asyncio.timeout(JOB_WAIT_TIMEOUT):
+                while True:
+                    job = await self._poll_job(job_id)
+                    if job is None:
+                        missing += 1
+                        if missing >= JOB_MAX_MISSING_POLLS:
+                            raise HomeAssistantError(
+                                self._action_error(action, f"job {job_id} not found")
+                            )
+                    elif self._job_finished(job, action):
+                        return job
+                    else:
+                        missing = 0
+                    await asyncio.sleep(JOB_POLL_INTERVAL)
+        except TimeoutError as err:
+            raise HomeAssistantError(
+                self._action_error(action, "timed out waiting for completion")
+            ) from err
+
+    async def _run_dataset_job(self, method: str, payload: list, action: str) -> Any:
+        """Start a dataset middleware job, wait for it, and return its result."""
+        job_id = await self.hass.async_add_executor_job(
+            self.coordinator.api.query,
+            method,
+            payload,
+        )
+        if not isinstance(job_id, int):
+            raise HomeAssistantError(self._action_error(action, "invalid job id"))
+        job = await self._wait_for_job(job_id, action)
+        return job.get("result")
+
+    def _raise_on_unlock_failure(self, result: Any, action: str) -> None:
+        """Raise if pool.dataset.unlock reported per-dataset failures.
+
+        A wrong passphrase makes the job *succeed* (state SUCCESS) but lists the
+        dataset under ``failed`` with an error, so the job state alone is not
+        enough to tell the user it actually worked.
+        """
+        if not isinstance(result, dict):
+            return
+        failed = result.get("failed")
+        if not isinstance(failed, dict) or not failed:
+            return
+        reasons = "; ".join(
+            f"{name}: {info.get('error', 'unknown error')}"
+            if isinstance(info, dict)
+            else str(name)
+            for name, info in failed.items()
+        )
+        raise HomeAssistantError(self._action_error(action, reasons))
+
     async def snapshot(self) -> None:
         """Create dataset snapshot."""
         ts = datetime.now().isoformat(sep="_", timespec="microseconds")
@@ -166,6 +263,85 @@ class TrueNASDatasetSensor(TrueNASSensor):
                 "zfs.snapshot.create",
                 payload,
             )
+
+    def _raise_if_not_encrypted(self, action: str) -> None:
+        """Reject lock/unlock on a dataset that is not encrypted.
+
+        Short-circuits before any middleware call: only encrypted datasets can
+        be locked/unlocked, so a non-encrypted target is a user error.
+        """
+        if not self._data.get("encrypted"):
+            name = self._data.get("name", "<unknown>")
+            raise ServiceValidationError(
+                f"Dataset {name} is not encrypted and cannot be {action}ed"
+            )
+
+    def _log_already(self, state: str) -> None:
+        """Log that a dataset is already in the requested lock state."""
+        _LOGGER.debug(
+            "Dataset id=%s Name=%s Locked=%s Encrypted=%s is already %s",
+            self._data.get("id"),
+            self._data.get("name"),
+            self._data.get("locked"),
+            self._data.get("encrypted"),
+            state,
+        )
+
+    async def lock(self, force_umount: bool = False) -> None:
+        """Lock a dataset.
+
+        Args:
+            force_umount: Force umount dataset mountpoints before locking.
+        """
+        self._raise_if_not_encrypted("lock")
+        # async_refresh (not async_request_refresh) so the locked state is read
+        # fresh here: request_refresh is debounced and may still return stale data
+        # when automations toggle datasets in quick succession.
+        await self.coordinator.async_refresh()
+        if self._data.get("locked", True):
+            self._log_already("locked")
+            return
+
+        payload = [self._data.get("id"), {"force_umount": force_umount}]
+        await self._run_dataset_job("pool.dataset.lock", payload, "lock")
+        await self.coordinator.async_refresh()
+
+    async def unlock(
+        self, passphrase: str, recursive: bool = False, force: bool = False
+    ) -> None:
+        """Unlock a dataset using the provided passphrase.
+
+        Args:
+            passphrase: The dataset passphrase.
+            recursive: Unlock datasets recursively.
+            force: Force the unlock operation.
+        """
+        self._raise_if_not_encrypted("unlock")
+        # See lock(): async_refresh forces fresh data before the idempotency check.
+        await self.coordinator.async_refresh()
+        if not self._data.get("locked", True):
+            self._log_already("unlocked")
+            return
+
+        payload = [
+            self._data.get("id"),
+            {
+                # Top-level "recursive" is what actually unlocks the child tree
+                # (the per-dataset flag alone does not), verified against 25.04.
+                "recursive": recursive,
+                "datasets": [
+                    {
+                        "name": self._data.get("name"),
+                        "passphrase": passphrase,
+                        "recursive": recursive,
+                        "force": force,
+                    }
+                ],
+            },
+        ]
+        result = await self._run_dataset_job("pool.dataset.unlock", payload, "unlock")
+        self._raise_on_unlock_failure(result, "unlock")
+        await self.coordinator.async_refresh()
 
 
 # ---------------------------
